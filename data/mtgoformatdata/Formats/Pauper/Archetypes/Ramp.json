@@ -1,0 +1,42 @@
+{
+  "Name": "Ramp",
+  "IncludeColorInName": true,
+  "Conditions": [
+    {
+      "Type": "InMainboard",
+      "Cards": ["Writhing Chrysalis"]
+    },
+    {
+      "Type": "OneOrMoreInMainboard",
+      "Cards": ["Arbor Elf", "Arboreal Grazer", "Llanowar Elves"]
+    },
+    {
+      "Type": "DoesNotContainMainboard",
+      "Cards": ["Pestilence"]
+    },
+    {
+      "Type": "DoesNotContainMainboard",
+      "Cards": ["Khalni Garden"]
+    },
+    {
+      "Type": "DoesNotContainMainboard",
+      "Cards": ["Trailblazer's Torch"]
+    },
+    {
+      "Type": "DoesNotContainMainboard",
+      "Cards": ["Goliath Paladin"]
+    },
+    {
+      "Type": "DoesNotContainMainboard",
+      "Cards": ["Mwonvuli Acid-Moss"]
+    },
+    {
+      "Type": "DoesNotContainMainboard",
+      "Cards": ["Overgrown Battlement"]
+    },
+    {
+      "Type": "DoesNotContainMainboard",
+      "Cards": ["Priest of Titania"]
+    }
+  ]
+}

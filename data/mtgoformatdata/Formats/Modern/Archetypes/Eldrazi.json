@@ -1,0 +1,109 @@
+{
+  "Name": "Eldrazi",
+  "IncludeColorInName": false,
+  "Conditions": [
+    {
+      "Type": "InMainboard",
+      "Cards": ["Eldrazi Temple"]
+    },
+    {
+      "Type": "TwoOrMoreInMainboard",
+      "Cards": [
+        "Thought-Knot Seer",
+        "Reality Smasher",
+        "Devourer of Destiny",
+        "Sowing Mycospawn",
+        "World Breaker",
+        "Basking Broodscale",
+        "Glaring Fleshraker",
+        "Nulldrifter",
+        "Kozilek's Command",
+        "Emrakul, the Promised End"
+      ]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": ["Thalia, Guardian of Thraben"]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": ["Urza's Tower"]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": ["Hardened Scales"]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": ["Coretapper"]
+    }
+  ],
+  "Variants": [
+    {
+      "Name": "Breach Eldrazi",
+      "IncludeColorInName": false,
+      "Conditions": [
+        {
+          "Type": "InMainboard",
+          "Cards": ["Through the Breach"]
+        }
+      ]
+    },
+    {
+      "Name": "Broodscale",
+      "IncludeColorInName": false,
+      "Conditions": [
+        {
+          "Type": "InMainboard",
+          "Cards": ["Basking Broodscale"]
+        }
+      ]
+    },
+    {
+      "Name": "Ramp Eldrazi",
+      "IncludeColorInName": false,
+      "Conditions": [
+        {
+          "Type": "InMainboard",
+          "Cards": ["Emrakul, the Promised End"]
+        },
+        {
+          "Type": "DoesNotContain",
+          "Cards": ["Basking Broodscale"]
+        },
+        {
+          "Type": "DoesNotContain",
+          "Cards": ["Through the Breach"]
+        }
+      ]
+    },
+    {
+      "Name": "Aggro Eldrazi",
+      "IncludeColorInName": false,
+      "Conditions": [
+        {
+          "Type": "InMainboard",
+          "Cards": ["Eldrazi Linebreaker"]
+        },
+        {
+          "Type": "DoesNotContain",
+          "Cards": ["Basking Broodscale"]
+        }
+      ]
+    },
+    {
+      "Name": "Black Eldrazi",
+      "IncludeColorInName": false,
+      "Conditions": [
+        {
+          "Type": "InMainboard",
+          "Cards": ["Fatal Push"]
+        },
+        {
+          "Type": "DoesNotContain",
+          "Cards": ["Basking Broodscale"]
+        }
+      ]
+    }
+  ]
+}

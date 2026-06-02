@@ -1,0 +1,30 @@
+{
+  "Name": "Mono Red Aggro",
+  "IncludeColorInName": false,
+  "Conditions": [
+    {
+      "Type": "InMainboard",
+      "Cards": ["Monastery Swiftspear"]
+    },
+    {
+      "Type": "InMainboard",
+      "Cards": ["Soul-Scar Mage"]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": ["Reckless Bushwhacker"]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": ["Cori-Steel Cutter"]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": ["Favored Hoplite"]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": ["Pia Nalaar, Consul of Revival"]
+    }
+  ]
+}

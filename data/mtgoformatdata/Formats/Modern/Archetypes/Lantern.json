@@ -1,0 +1,14 @@
+{
+  "Name": "Lantern",
+  "IncludeColorInName": false,
+  "Conditions": [
+    {
+      "Type": "InMainboard",
+      "Cards": ["Lantern of Insight"]
+    },
+    {
+      "Type": "InMainboard",
+      "Cards": ["Ensnaring Bridge"]
+    }
+  ]
+}

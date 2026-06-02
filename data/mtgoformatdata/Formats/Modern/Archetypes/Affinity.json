@@ -1,0 +1,50 @@
+{
+  "Name": "Affinity",
+  "IncludeColorInName": false,
+  "Conditions": [
+    {
+      "Type": "OneOrMoreInMainboard",
+      "Cards": ["Ornithopter","Memnite","Esper Sentinel","Springleaf Drum", "Mox Opal"]
+    },
+    {
+      "Type": "OneOrMoreInMainboard",
+      "Cards": ["Arcbound Ravager","Nettlecyst","Frogmite","Sojourner's Companion","Thought Monitor", "Thoughtcast"]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": ["Cori-Steel Cutter"]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": ["Colossus Hammer"]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": ["Ragavan, Nimble Pilferer"]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": ["Hardened Scales"]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": ["Sword of the Meek"]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": ["Basim Ibn Ishaq"]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": ["Oswald Fiddlebender"]
+    },
+	{
+      "Type": "DoesNotContain",
+      "Cards": ["Asmoranomardicadaistinaculdacar"]
+    },
+    {
+      "Type": "DoesNotContainMainboard",
+      "Cards": ["Underworld Breach"]
+    }
+  ]
+}

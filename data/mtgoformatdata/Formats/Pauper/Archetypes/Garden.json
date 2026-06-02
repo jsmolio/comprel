@@ -1,0 +1,54 @@
+{
+  "Name": "Garden",
+  "IncludeColorInName": true,
+  "Conditions": [
+    {
+      "Type": "InMainboard",
+      "Cards": ["Khalni Garden"]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": ["Basilisk Gate"]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": ["Cauldron Familiar"]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": ["Goblin Matron"]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": ["Basking Broodscale"]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": ["Dread Return"]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": ["Tangle"]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": ["Glistener Elf"]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": ["Slippery Bogle"]
+    }
+  ],
+  "Variants": [
+    {
+      "Name": "Golgari Garden",
+      "IncludeColorInName": false,
+      "Conditions": [
+        {
+          "Type": "InMainboard",
+          "Cards": ["Deadly Dispute"]
+        }
+      ]
+    }
+  ]
+}

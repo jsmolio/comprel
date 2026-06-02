@@ -1,0 +1,48 @@
+{
+  "Name": "Blue Artifacts",
+  "IncludeColorInName": false,
+  "Conditions": [
+    {
+      "Type": "OneOrMoreInMainboard",
+      "Cards": [
+        "Sai, Master Thopterist",
+        "Kappa Cannoneer",
+        "Emry, Lurker of the Loch",
+        "Patchwork Automaton",
+        "Pinnacle Emissary"
+      ]
+    },
+    {
+      "Type": "InMainboard",
+      "Cards": ["Thoughtcast"]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": ["Arcbound Ravager"]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": ["Painter's Servant"]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": ["Grindstone"]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": ["Auriok Salvagers"]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": ["Riddlesmith"]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": ["Paradoxical Outcome"]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": ["Paradox Engine"]
+    }
+  ]
+}

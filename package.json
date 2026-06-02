@@ -1,17 +1,28 @@
 {
-  "name": "scaffold_tmp",
+  "name": "comprel",
   "version": "0.1.0",
   "private": true,
   "scripts": {
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "postinstall": "prisma generate",
+    "db:migrate": "prisma migrate deploy",
+    "db:push": "prisma db push",
+    "db:generate": "prisma generate",
+    "db:studio": "prisma studio",
+    "ingest": "tsx scripts/ingest.ts",
+    "ingest:incremental": "tsx scripts/ingest.ts --incremental",
+    "watch": "tsx scripts/watch.ts",
+    "aggregate": "tsx scripts/ingest.ts --aggregate-only"
   },
   "dependencies": {
+    "@prisma/client": "^6.19.3",
     "next": "16.2.7",
     "react": "19.2.4",
-    "react-dom": "19.2.4"
+    "react-dom": "19.2.4",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
@@ -20,7 +31,9 @@
     "@types/react-dom": "^19",
     "eslint": "^9",
     "eslint-config-next": "16.2.7",
+    "prisma": "^6.19.3",
     "tailwindcss": "^4",
+    "tsx": "^4.22.4",
     "typescript": "^5"
   }
 }

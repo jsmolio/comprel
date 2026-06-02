@@ -1,0 +1,14 @@
+{
+  "Name": "VivienCombo",
+  "IncludeColorInName": false,
+  "Conditions": [
+    {
+      "Type": "InMainboard",
+      "Cards": ["Vivien on the Hunt"]
+    },
+    {
+      "Type": "InMainboard",
+      "Cards": ["Planebound Accomplice"]
+    }
+  ]
+}

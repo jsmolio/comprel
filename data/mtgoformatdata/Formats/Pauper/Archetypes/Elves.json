@@ -1,0 +1,22 @@
+{
+    "Name": "Elves",
+    "IncludeColorInName": false,
+    "Conditions": [
+        {
+            "Type": "InMainboard",
+            "Cards": ["Priest of Titania"]
+        },
+        {
+            "Type": "DoesNotContain",
+            "Cards": ["Khalni Garden"]
+        },
+        {
+            "Type": "DoesNotContain",
+            "Cards": ["Drift of Phantasms"]
+        },
+        {
+            "Type": "DoesNotContain",
+            "Cards": ["Dread Return"]
+        }
+    ]
+}

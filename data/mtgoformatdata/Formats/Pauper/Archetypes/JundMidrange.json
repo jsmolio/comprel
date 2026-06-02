@@ -1,0 +1,18 @@
+{
+  "Name": "Midrange",
+  "IncludeColorInName": true,
+  "Conditions": [
+    {
+      "Type": "InMainboard",
+      "Cards": ["Refurbished Familiar"]
+    },
+    {
+      "Type": "InMainboard",
+      "Cards": ["Writhing Chrysalis"]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": ["Khalni Garden"]
+    }
+  ]
+}

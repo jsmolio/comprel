@@ -1,0 +1,22 @@
+{
+  "Name": "Creativity",
+  "IncludeColorInName": true,
+  "Conditions": [
+    {
+      "Type": "InMainboard",
+      "Cards": ["Indomitable Creativity"]
+    }
+  ],
+  "Variants": [
+    {
+      "Name": "Opus",
+      "IncludeColorInName": false,
+      "Conditions": [
+        {
+          "Type": "InMainboard",
+          "Cards": ["Magma Opus"]
+        }
+        ]
+    }
+  ]
+}

@@ -1,0 +1,19 @@
+{
+    "Name": "Reanimator",
+    "IncludeColorInName": false,
+    "Conditions": [
+            {
+            "Type": "OneOrMoreInMainboard",
+            "Cards": ["Exhume","Late to Dinner"]
+        },
+        {
+            "Type": "OneOrMoreInMainboard",
+            "Cards": ["Careful Study","Faithless Looting"]
+        },
+        {
+            "Type": "DoesNotContain",
+            "Cards": ["Dread Return"]
+        }
+
+    ]
+}

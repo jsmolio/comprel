@@ -1,0 +1,22 @@
+{
+    "Name": "Initiative",
+    "IncludeColorInName": false,
+    "Conditions": [
+        {
+            "Type": "InMainboard",
+            "Cards": ["White Plume Adventurer"]
+        },
+        {
+            "Type": "InMainboard",
+            "Cards": ["Seasoned Dungeoneer"]
+        },
+        {
+            "Type": "OneOrMoreInMainboard",
+            "Cards": ["Plains","Snow-Covered Plains"]
+        },
+        {
+            "Type": "InMainboard",
+            "Cards": ["Chrome Mox"]
+        }
+    ]
+}

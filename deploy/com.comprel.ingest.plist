@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- macOS LaunchAgent that runs an incremental ingest 4x/day.
+     Install:   cp deploy/com.comprel.ingest.plist ~/Library/LaunchAgents/
+                launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.comprel.ingest.plist
+     Run now:   launchctl kickstart -k gui/$(id -u)/com.comprel.ingest
+     Logs:      tail -f ~/Library/Logs/comprel-ingest.log
+     Uninstall: launchctl bootout gui/$(id -u)/com.comprel.ingest
+                rm ~/Library/LaunchAgents/com.comprel.ingest.plist -->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.comprel.ingest</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>/Users/jeremy.smolens/compREL/scripts/cron-ingest.sh</string>
+  </array>
+  <key>StartCalendarInterval</key>
+  <array>
+    <dict><key>Hour</key><integer>3</integer><key>Minute</key><integer>0</integer></dict>
+    <dict><key>Hour</key><integer>9</integer><key>Minute</key><integer>0</integer></dict>
+    <dict><key>Hour</key><integer>15</integer><key>Minute</key><integer>0</integer></dict>
+    <dict><key>Hour</key><integer>21</integer><key>Minute</key><integer>0</integer></dict>
+  </array>
+  <key>StandardOutPath</key>
+  <string>/Users/jeremy.smolens/Library/Logs/comprel-ingest.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/jeremy.smolens/Library/Logs/comprel-ingest.log</string>
+  <key>RunAtLoad</key>
+  <false/>
+</dict>
+</plist>

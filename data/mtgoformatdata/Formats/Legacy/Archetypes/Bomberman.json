@@ -1,0 +1,19 @@
+{
+    "Name": "Bomberman",
+    "IncludeColorInName": false,
+    "Conditions": [
+        {
+            "Type": "InMainboard",
+            "Cards": ["Walking Ballista"]
+        },
+        {
+            "Type": "InMainboard",
+            "Cards": ["Auriok Salvagers"]
+        },
+        {
+            "Type": "InMainboard",
+            "Cards": ["Urza's Saga"]
+        }
+
+    ]
+}

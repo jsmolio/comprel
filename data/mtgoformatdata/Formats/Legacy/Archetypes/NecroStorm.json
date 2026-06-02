@@ -1,0 +1,22 @@
+{
+  "Name": "Necro Storm",
+  "IncludeColorInName": false,
+  "Conditions": [
+    {
+      "Type": "InMainboard",
+      "Cards": ["Necrodominance"]
+    },
+    {
+      "Type": "OneOrMoreInMainboard",
+      "Cards": ["Beseech the Mirror", "Borne Upon a Wind"]
+    },
+    {
+      "Type": "OneOrMoreInMainboard",
+      "Cards": ["Tendrils of Agony", "Fateful Showdown"]
+		},
+		{
+			"Type": "DoesNotContain",
+			"Cards": ["Urza's Saga"]
+    }
+  ]
+}

@@ -1,0 +1,60 @@
+{
+  "Name": "Nadu",
+  "IncludeColorInName": false,
+  "Conditions": [
+    {
+      "Type": "InMainboard",
+      "Cards": ["Nadu, Winged Wisdom"]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": ["Cephalid Illusionist"]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": ["Punishing Fire"]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": ["Colossus Hammer"]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": ["Grief"]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": ["Crop Rotation"]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": ["Up the Beanstalk"]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": ["Thoughtcast"]
+    }
+  ],
+  "Variants": [
+    {
+      "Name": "Maverick",
+      "IncludeColorInName": false,
+      "Conditions": [
+        {
+          "Type": "InMainboard",
+          "Cards": ["Knight of the Reliquary"]
+        }
+      ]
+    },
+    {
+      "Name": "Nadu Elves",
+      "IncludeColorInName": false,
+      "Conditions": [
+        {
+          "Type": "InMainboard",
+          "Cards": ["Allosaurus Shepherd"]
+        }
+      ]
+    }
+  ]
+}

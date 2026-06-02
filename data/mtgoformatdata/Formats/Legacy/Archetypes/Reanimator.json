@@ -1,0 +1,38 @@
+{
+  "Name": "Reanimator",
+  "IncludeColorInName": true,
+  "Conditions": [
+    {
+      "Type": "OneOrMoreInMainboard",
+      "Cards": ["Entomb", "Fable of the Mirror-Breaker", "Unmask"]
+    },
+    {
+      "Type": "OneOrMoreInMainboard",
+      "Cards": ["Currency Converter", "Exhume", "Animate Dead", "Reanimate"]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": ["Children of Korlis"]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": ["Undercity Informer"]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": ["Worldgorger Dragon"]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": ["Smallpox"]
+    },
+    {
+      "Type": "DoesNotContainMainboard",
+      "Cards": ["Show and Tell"]
+    },
+    {
+      "Type": "DoesNotContainMainboard",
+      "Cards": ["Death's Shadow"]
+    }
+  ]
+}

@@ -1,0 +1,50 @@
+{
+  "Name": "Wizards",
+  "IncludeColorInName": true,
+  "Conditions": [
+    {
+      "Type": "InMainboard",
+      "Cards": ["Flame of Anor"]
+    },
+    {
+      "Type": "OneOrMoreInMainboard",
+      "Cards": [
+        "Tishana's Tidebinder",
+        "Snapcaster Mage",
+        "Tamiyo, Inquisitive Student"
+      ]
+    },
+    {
+      "Type": "DoesNotContainMainboard",
+      "Cards": ["Ragavan, Nimble Pilferer"]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": ["Psychic Frog"]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": ["Cori-Steel Cutter"]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": ["Crashing Footfalls"]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": ["Splinter Twin"]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": ["Jeskai Ascendancy"]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": ["Emry, Lurker of the Loch"]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": ["Grinding Station"]
+    }
+  ]
+}

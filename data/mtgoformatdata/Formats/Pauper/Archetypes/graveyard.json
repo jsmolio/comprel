@@ -1,0 +1,26 @@
+{
+    "Name": "Graveyard",
+    "IncludeColorInName": true,
+    "Conditions": [
+        {
+            "Type": "InMainboard",
+            "Cards": ["Lotleth Giant"]
+        },
+        {
+            "Type": "InMainboard",
+            "Cards": ["Dread Return"]
+        }
+    ],
+    "Variants": [
+        {
+            "Name": "Spy Combo",
+            "IncludeColorInName": false,
+            "Conditions": [
+                {
+                    "Type": "InMainboard",
+                    "Cards": ["Balustrade Spy"]
+                }
+            ]
+        }
+    ]
+}

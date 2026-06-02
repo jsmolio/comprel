@@ -1,0 +1,42 @@
+{
+  "Name": "Blink",
+  "IncludeColorInName": true,
+  "Conditions": [
+    {
+      "Type": "OneOrMoreInMainboard",
+      "Cards": ["Soulherder", "Samwise the Stouthearted"]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": ["Murktide Regent"]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": ["Guide of Souls"]
+    },
+    {
+      "Type": "DoesNotContainMainboard",
+      "Cards": ["Thalia, Guardian of Thraben"]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": ["Seasoned Dungeoneer"]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": ["Dark Depths"]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": ["Nadu, Winged Wisdom"]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": ["Narset, Parter of Veils"]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": ["Stoneforge Mystic"]
+    }
+  ]
+}

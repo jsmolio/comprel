@@ -1,0 +1,26 @@
+{
+  "Name": "Painter",
+  "IncludeColorInName": false,
+  "Conditions": [
+    {
+      "Type": "InMainboard",
+      "Cards": ["Painter's Servant"]
+    },
+    {
+      "Type": "InMainboard",
+      "Cards": ["Grindstone"]
+    }
+  ],
+  "Variants": [
+    {
+      "Name": "Blue Painter",
+      "IncludeColorInName": false,
+      "Conditions": [
+        {
+          "Type": "InMainboard",
+          "Cards": ["Force of Will"]
+        }
+      ]
+    }
+  ]
+}

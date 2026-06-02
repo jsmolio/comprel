@@ -1,0 +1,30 @@
+{
+  "Name": "Affinity",
+  "IncludeColorInName": true,
+  "Conditions": [
+    {
+      "Type": "InMainboard",
+      "Cards": ["Kenku Artificer"]
+    },
+    {
+      "Type": "InMainboard",
+      "Cards": ["Thoughtcast"]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": ["Frogmite"]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": ["Experimental Synthesizer"]  
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": ["Myr Enforcer"]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": ["Slippery Bogle"]
+    }
+  ]
+}

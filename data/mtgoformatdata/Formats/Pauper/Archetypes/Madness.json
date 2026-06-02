@@ -1,0 +1,42 @@
+{
+  "Name": "Red Madness",
+  "IncludeColorInName": false,
+  "Conditions": [
+    {
+      "Type": "InMainboard",
+      "Cards": ["Fiery Temper"]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": ["Goblin Tomb Raider"]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": ["Dread Return"]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": ["Urza's Tower"]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": ["Urza's Power Plant"]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": ["Urza's Mine"]
+    }
+  ],
+  "Variants": [
+    {
+      "Name": "Rakdos Madness",
+      "IncludeColorInName": false,
+      "Conditions": [
+        {
+          "Type": "InMainboard",
+          "Cards": ["Kitchen Imp"]
+        }
+      ]
+    }
+  ]
+}

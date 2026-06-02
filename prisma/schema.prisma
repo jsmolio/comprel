@@ -1,0 +1,149 @@
+// compREL — competitive Magic: the Gathering metagame database.
+// Postgres (Supabase). DATABASE_URL = pooled connection (app), DIRECT_URL =
+// session/direct connection (migrations).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+/// A single tournament ingested from an upstream source (MTGODecklistCache, TopDeck API, ...).
+model Tournament {
+  id          String   @id // `${source}:${stableId}`
+  source      String // melee.gg | mtgo.com | topdeck.gg | manatraders.com
+  name        String
+  date        DateTime
+  format      String // Standard | Modern | Pioneer | Legacy | Vintage | Pauper | Unknown
+  uri         String?
+  hasPairings Boolean  @default(false) // true when round-by-round pairings are present
+  deckCount   Int      @default(0)
+  decks       Deck[]
+  matches     Match[]
+  createdAt   DateTime @default(now())
+
+  @@index([format, date])
+  @@index([source])
+}
+
+/// One player's decklist within a tournament.
+model Deck {
+  id           String     @id @default(cuid())
+  tournamentId String
+  tournament   Tournament @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+  format       String
+  player       String
+  result       String? // raw upstream result string, e.g. "5-0" or "1st Place"
+  rank         Int?
+  anchorUri    String?
+  archetype    String? // assigned by the classifier (null until classified)
+  colorId      String? // WUBRG subset, e.g. "UR"
+  colorName    String? // guild/shard name, e.g. "Izzet"
+  wins         Int        @default(0)
+  losses       Int        @default(0)
+  draws        Int        @default(0)
+  mainboard    Json // [{ name: string, count: number }]
+  sideboard    Json
+  date         DateTime
+
+  @@index([format, archetype])
+  @@index([tournamentId])
+  @@index([format, date])
+}
+
+/// A single match (one row per pairing) — the raw material for head-to-head matchups.
+/// Only present for sources that publish round-by-round pairings (melee.gg, topdeck.gg).
+model Match {
+  id           String     @id @default(cuid())
+  tournamentId String
+  tournament   Tournament @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+  format       String
+  roundName    String?
+  player1      String
+  player2      String
+  p1GameWins   Int        @default(0)
+  p2GameWins   Int        @default(0)
+  draws        Int        @default(0)
+  winner       Int // 1 | 2 | 0 (draw/unknown)
+  date         DateTime
+
+  @@index([tournamentId])
+  @@index([format, date])
+}
+
+/// Card metadata enriched lazily from Scryfall (images, oracle text, prices).
+model Card {
+  name       String   @id
+  scryfallId String?
+  imageUrl   String?
+  artCrop    String?
+  manaCost   String?
+  cmc        Float?
+  typeLine   String?
+  colors     String?
+  oracleText String?
+  rarity     String?
+  setCode    String?
+  priceUsd   String?
+  updatedAt  DateTime @default(now())
+}
+
+/// Precomputed metagame share + aggregate win rate per (format, rolling window, archetype).
+model ArchetypeStat {
+  id          String   @id @default(cuid())
+  format      String
+  windowDays  Int
+  source      String // "all" | "paper" | "mtgo"
+  archetype   String
+  colorName   String?
+  deckCount   Int
+  metaShare   Float // 0..1 fraction of decks in the window
+  matchWins   Int
+  matchLosses Int
+  matchDraws  Int
+  winRate     Float // 0..1 aggregate match win rate
+  updatedAt   DateTime @default(now())
+
+  @@unique([format, windowDays, source, archetype])
+  @@index([format, windowDays, source])
+}
+
+/// Precomputed head-to-head matchup per (format, window, archetypeA vs archetypeB).
+/// Stored directionally (A's perspective) with a Wilson 95% confidence interval.
+model MatchupStat {
+  id         String   @id @default(cuid())
+  format     String
+  windowDays Int
+  source     String // "all" | "paper" | "mtgo"
+  archetypeA String
+  archetypeB String
+  matches    Int
+  winsA      Int
+  winsB      Int
+  draws      Int
+  winRateA   Float
+  ciLow      Float
+  ciHigh     Float
+  updatedAt  DateTime @default(now())
+
+  @@unique([format, windowDays, source, archetypeA, archetypeB])
+  @@index([format, windowDays, source, archetypeA])
+}
+
+/// YouTube gameplay/sideboard-guide videos matched to an archetype.
+model Video {
+  id           String    @id // youtube video id
+  format       String
+  archetype    String
+  title        String
+  channelTitle String
+  publishedAt  DateTime?
+  thumbnail    String?
+  fetchedAt    DateTime  @default(now())
+
+  @@index([format, archetype])
+}

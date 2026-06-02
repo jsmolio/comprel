@@ -1,0 +1,18 @@
+{
+    "Name": "Terror",
+    "IncludeColorInName": true,
+    "Conditions": [
+        {
+            "Type" : "InMainboard",
+            "Cards": ["Delver of Secrets"]
+        },
+        {
+            "Type" : "DoesNotContain",
+            "Cards": ["Spellstutter Sprite"]
+        },
+        {
+            "Type" : "DoesNotContain",
+            "Cards": ["Mystical Teachings"]
+        }
+    ]
+}

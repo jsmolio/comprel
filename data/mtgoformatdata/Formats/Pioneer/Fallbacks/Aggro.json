@@ -1,0 +1,24 @@
+{
+  "Name": "Aggro",
+  "IncludeColorInName": true,
+  "CommonCards": [
+    "Den of the Bugbear",
+    "Monastery Swiftspear",
+    "Ramunap Ruins",
+    "Anax, Hardened in the Forge",
+    "Torbran, Thane of Red Fell",
+    "Bonecrusher Giant",
+    "Kumano Faces Kakkazan",
+    "Thalia, Guardian of Thraben",
+    "Adeline, Resplendent Cathar",
+    "Kytheon, Hero of Akros",
+    "Skrelv, Defector Mite",
+    "Favored hoplite",
+    "Clever Luminancer",
+    "Slickshot Show-Off",
+    "Callous Sell-Sword",
+    "Heartfire Hero",
+    "Ancestral Anger",
+    "Monstrous Rage"
+  ]
+}

@@ -1,0 +1,40 @@
+{
+  "Name": "GenericTron",
+  "IncludeColorInName": false,
+  "Conditions": [
+    {
+      "Type": "TwoOrMoreInMainboard",
+      "Cards": [
+        "Urza's Tower",
+        "Urza's Mine",
+        "Urza's Power Plant"
+      ]
+    }
+  ],
+  "Variants": [
+    {
+      "Name": "AnvilTron",
+      "IncludeColorInName": false,
+      "Conditions": [
+        {
+          "Type": "InMainboard",
+          "Cards": ["Semblance Anvil"]
+        },
+        {
+          "Type": "InMainboard",
+          "Cards": ["Myr Retriever"]
+        }
+      ]
+    },
+    {
+      "Name": "Eldrazi Tron",
+      "IncludeColorInName": false,
+      "Conditions": [
+        {
+          "Type": "InMainboard",
+          "Cards": ["Eldrazi Temple"]
+        }
+      ]
+    }
+  ]
+}

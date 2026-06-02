@@ -1,0 +1,14 @@
+{
+    "Name": "Fires of Invention",
+    "IncludeColorInName": false,
+    "Conditions": [
+        {
+            "Type": "InMainboard",
+            "Cards": ["Fires of Invention"]
+        },
+        {
+            "Type": "DoesNotContain",
+            "Cards": ["Enigmatic Incarnation"]
+        }
+    ]
+  }

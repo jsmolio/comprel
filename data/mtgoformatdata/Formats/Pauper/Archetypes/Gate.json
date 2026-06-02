@@ -1,0 +1,26 @@
+{
+  "Name": "Gates",
+  "IncludeColorInName": false,
+  "Conditions": [
+    {
+      "Type": "InMainboard",
+      "Cards": ["Basilisk Gate"]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": ["Moment's Peace"]
+    }
+  ],
+  "Variants": [
+    {
+      "Name": "Caw Gates",
+      "IncludeColorInName": false,
+      "Conditions": [
+        {
+          "Type": "InMainboard",
+          "Cards": ["Squadron Hawk"]
+        }
+      ]
+    }
+  ]
+}

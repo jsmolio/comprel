@@ -1,0 +1,48 @@
+{
+  "Name": "Control",
+  "IncludeColorInName": true,
+  "Conditions": [
+    {
+      "Type": "OneOrMoreInMainboard",
+      "Cards": ["Supreme Verdict","Akal Pakal, First Among Equals"]
+    },
+    {
+      "Type": "DoesNotContainMainboard",
+      "Cards": ["Atraxa, Grand Unifier"]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": ["Lutri, the Spellchaser"]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": ["Bring to Light"]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": ["Enigmatic Incarnation"]
+    }
+  ],
+  "Variants": [
+    {
+      "Name": "Lotus Control",
+      "IncludeColorInName": true,
+      "Conditions": [
+        {
+          "Type": "InMainboard",
+          "Cards": ["Lotus Field"]
+        }
+        ]
+    },
+    {
+      "Name": "Artefact Control",
+      "IncludeColorInName": true,
+      "Conditions": [
+        {
+          "Type": "InMainboard",
+          "Cards": ["Candy Trail"]
+        }
+        ]
+    }
+  ]
+}

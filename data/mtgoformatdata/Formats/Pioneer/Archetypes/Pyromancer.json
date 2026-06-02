@@ -1,0 +1,18 @@
+{
+  "Name": "Pyromancer",
+  "IncludeColorInName": false,
+  "Conditions": [
+    {
+      "Type": "InMainboard",
+      "Cards": ["Young Pyromancer"]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": ["Arclight Phoenix"]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": ["Jeskai Ascendancy"]
+    }
+  ]
+}

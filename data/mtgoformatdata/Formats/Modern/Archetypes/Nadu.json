@@ -1,0 +1,34 @@
+{
+  "Name": "Nadu",
+  "IncludeColorInName": false,
+  "Conditions": [
+    {
+      "Type": "InMainboard",
+      "Cards": ["Nadu, Winged Wisdom"]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": ["Colossus Hammer"]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": ["Priest of Titania"]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": ["Grinding Station"]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": ["Amulet of Vigor"]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": ["Thoughtcast"]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": ["Thopter Foundry"]
+    }
+  ]
+}

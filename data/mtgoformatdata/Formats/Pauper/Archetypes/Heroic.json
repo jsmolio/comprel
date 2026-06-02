@@ -1,0 +1,14 @@
+{
+    "Name": "Heroic",
+    "IncludeColorInName": true,
+    "Conditions": [
+        {
+            "Type": "InMainboard",
+            "Cards": ["Lagonna-Band Trailblazer"]
+        },
+        {
+            "Type" : "DoesNotContain",
+            "Cards": ["Glistener Elf"]
+        }        
+    ]
+}

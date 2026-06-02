@@ -1,0 +1,37 @@
+{
+  "Name": "GoryoReanimator",
+  "IncludeColorInName": false,
+  "Conditions": [
+    {
+      "Type": "InMainboard",
+      "Cards": [
+        "Goryo's Vengeance"
+      ]
+    },
+    {
+      "Type": "OneOrMoreInMainboard",
+      "Cards": [
+        "Griselbrand",
+        "Emrakul, the Aeons Torn",
+        "Atraxa, Grand Unifier",
+        "Ulamog, the Defiler"
+      ]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": [
+        "Nourishing Shoal"
+      ]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": [
+        "Asmoranomardicadaistinaculdacar"
+      ]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": ["Murktide Regent"]
+    }
+  ]
+}

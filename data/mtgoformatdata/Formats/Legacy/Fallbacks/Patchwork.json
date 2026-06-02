@@ -1,0 +1,10 @@
+{
+  "Name": "Blue Artifacts",
+  "IncludeColorInName": false,
+  "CommonCards": [
+    "Patchwork Automaton",
+    "Mox Opal",
+    "Mishra's Bauble",
+    "Urza's Bauble"
+  ]
+}

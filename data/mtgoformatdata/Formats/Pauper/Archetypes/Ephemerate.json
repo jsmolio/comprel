@@ -1,0 +1,42 @@
+{
+  "Name": "Ephemerate",
+  "IncludeColorInName": true,
+  "Conditions": [
+    {
+      "Type": "OneOrMoreInMainboard",
+      "Cards": ["Ephemerate", "Ghostly Flicker"]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": ["Glint Hawk"]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": ["Spellstutter Sprite"]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": ["Guardians' Pledge"]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": ["Sunscape Familiar"]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": ["Basilisk Gate"]
+    }
+  ],
+  "Variants": [
+    {
+      "Name": "Ephemerate Tron",
+      "IncludeColorInName": false,
+      "Conditions": [
+        {
+          "Type": "InMainboard",
+          "Cards": ["Urza's Mine"]
+        }
+      ]
+    }
+  ]
+}

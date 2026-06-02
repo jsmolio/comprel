@@ -1,0 +1,38 @@
+{
+  "Name": "Death & Taxes",
+  "IncludeColorInName": false,
+  "Conditions": [
+    {
+      "Type": "OneOrMoreInMainboard",
+      "Cards": ["Aether Vial", "Chalice of the Void", "Umezawa's Jitte", "Relic of Progenitus"]
+    },
+    {
+      "Type": "OneOrMoreInMainboard",
+      "Cards": ["Wasteland", "Field of Ruin", "Karakas"]
+    },
+    {
+      "Type": "OneOrMoreInMainboard",
+      "Cards": [
+        "Thalia, Guardian of Thraben",
+        "Phelia, Exuberant Shepherd",
+        "Flickerwisp"
+      ]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": ["Brutal Cathar"]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": ["Green Sun's Zenith"]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": ["Tamiyo, Inquisitive Student"]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": ["Ocelot Pride"]
+    }
+  ]
+}

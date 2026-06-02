@@ -1,0 +1,23 @@
+{
+  "Name": "HollowOne",
+  "IncludeColorInName": false,
+  "Conditions": [
+    {
+      "Type": "InMainboard",
+      "Cards": ["Hollow One"]
+    },
+    {
+      "Type": "InMainboard",
+      "Cards": ["Burning Inquiry"]
+    },
+    {
+      "Type": "OneOrMoreInMainboard",
+      "Cards": [
+        "Goblin Lore",
+        "Cathartic Reunion",
+        "Inti, Seneschal of the Sun",
+        "Fear of Missing Out"
+      ]
+    }
+  ]
+}

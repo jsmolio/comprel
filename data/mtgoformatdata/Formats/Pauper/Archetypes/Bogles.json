@@ -1,0 +1,22 @@
+{
+  "Name": "Bogles",
+  "IncludeColorInName": true,
+  "Conditions": [
+    {
+      "Type": "InMainboard",
+      "Cards": ["Slippery Bogle"]
+    }
+  ],
+  "Variants": [
+    {
+      "Name": "Aura Bogles",
+      "IncludeColorInName": false,
+      "Conditions": [
+        {
+          "Type": "InMainboard",
+          "Cards": ["Ethereal Armor"]
+        }
+      ]
+    }
+  ]
+}

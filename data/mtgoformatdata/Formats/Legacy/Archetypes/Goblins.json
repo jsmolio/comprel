@@ -1,0 +1,24 @@
+{
+  "Name": "Goblins",
+  "IncludeColorInName": false,
+  "Conditions": [
+    {
+      "Type": "OneOrMoreInMainboard",
+      "Cards": ["Goblin Lackey", "Muxus, Goblin Grandee", "Battle Cry Goblin"]
+    },
+    {
+      "Type": "OneOrMoreInMainboard",
+      "Cards": [
+        "Broadside Bombardiers",
+        "Goblin Trashmaster",
+        "Goblin Ringleader",
+        "Goblin Matron",
+        "Goblin Rabblemaster"
+      ]
+    },
+    {
+        "Type": "DoesNotContain",
+        "Cards": ["Food Chain"]
+    }
+  ]
+}

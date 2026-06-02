@@ -1,0 +1,30 @@
+{
+  "Name": "Midrange",
+  "IncludeColorInName": true,
+  "Conditions": [
+    {
+      "Type": "InMainboard",
+      "Cards": ["Glint Hawk"]
+    },
+    {
+      "Type": "InMainboard",
+      "Cards": ["Kor Skyfisher"]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": ["Pestilence"]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": ["Goblin Tomb Raider"]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": ["Myr Enforcer"]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": ["Experimental Synthesizer"]
+    }
+  ]
+}

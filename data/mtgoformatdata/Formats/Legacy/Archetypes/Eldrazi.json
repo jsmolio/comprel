@@ -1,0 +1,26 @@
+{
+  "Name": "Eldrazi",
+  "IncludeColorInName": false,
+  "Conditions": [
+    {
+      "Type": "TwoOrMoreInMainboard",
+      "Cards": [
+        "Matter Reshaper",
+        "Reality Smasher",
+        "Thought-Knot Seer",
+        "World Breaker",
+        "Devourer of Destiny",
+        "Eldrazi Mimic",
+        "Sowing Mycospawn"
+      ]
+    },
+    {
+      "Type": "InMainboard",
+      "Cards": ["Eldrazi Temple"]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": ["Cloudpost"]
+    }
+  ]
+}

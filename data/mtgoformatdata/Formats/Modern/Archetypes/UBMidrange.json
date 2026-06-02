@@ -1,0 +1,82 @@
+{
+  "Name": "Frog",
+  "IncludeColorInName": true,
+  "Conditions": [
+    {
+      "Type": "InMainboard",
+      "Cards": ["Psychic Frog"]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": ["Grief"]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": ["Asmoranomardicadaistinaculdacar"]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": ["Stinkweed Imp"]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": ["Death's Shadow"]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": ["Birthing Ritual"]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": ["Necrodominance"]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": ["Hollow One"]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": ["Overlord of the Balemurk"]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": ["Expressive Iteration"]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": ["Phlage, Titan of Fire's Fury"]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": ["Wrath of the Skies"]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": ["Goryo's Vengeance"]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": ["Teferi, Time Raveler"]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": ["Splinter Twin"]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": ["Scion of Draco"]
+    }
+  ],
+  "Variants": [
+    {
+      "Name": "Reanimator",
+      "IncludeColorInName": true,
+      "Conditions": [
+        {
+          "Type": "InMainboard",
+          "Cards": ["Persist"]
+        }
+      ]
+    }
+  ]
+}

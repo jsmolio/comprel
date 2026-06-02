@@ -1,0 +1,35 @@
+{
+  "Name": "Elves",
+  "IncludeColorInName": false,
+  "Conditions": [
+    {
+      "Type": "OneOrMoreInMainboard",
+      "Cards": [
+        "Elvish Mystic",
+        "Llanowar Elves",
+        "Elvish Spirit Guide",
+        "Gaea's Cradle"
+      ]
+    },
+    {
+      "Type": "OneOrMoreInMainboard",
+      "Cards": ["Heritage Druid", "Elvish Visionary", "Allosaurus Shepherd"]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": ["Springheart Nantuko"]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": ["Bristly Bill, Spine Sower"]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": ["Ignoble Hierarch"]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": ["Wight of the Reliquary"]
+    }
+  ]
+}

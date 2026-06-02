@@ -1,0 +1,14 @@
+{
+    "Name": "Zur enchantement",
+    "IncludeColorInName": false,
+    "Conditions": [
+        {
+            "Type": "InMainboard",
+            "Cards": ["Zur, Eternal Schemer"]
+        },
+        {
+            "Type": "DoesNotContain",
+            "Cards": ["Enigmatic Incarnation"]
+        }
+    ]
+}

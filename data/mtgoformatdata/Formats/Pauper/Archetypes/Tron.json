@@ -1,0 +1,38 @@
+{
+    "Name": "Tron",
+    "IncludeColorInName": false,
+    "Conditions": [
+        {
+            "Type": "InMainboard",
+            "Cards": ["Urza's Tower"]
+        },
+        {
+            "Type": "InMainboard",
+            "Cards": ["Urza's Power Plant"]
+        },
+        {
+            "Type": "InMainboard",
+            "Cards": ["Urza's Tower"]
+        },
+        {
+            "Type": "DoesNotContain",
+            "Cards": ["Ephemerate"]
+        },
+        {
+            "Type": "DoesNotContain",
+            "Cards": ["Ghostly Flicker"]
+        }
+    ],
+    "Variants": [
+        {
+            "Name": "Altar Tron",
+            "IncludeColorInName": false,
+            "Conditions": [
+                {
+                    "Type": "InMainboard",
+                    "Cards": ["Myr Retriever"]
+                }
+            ]
+        }
+    ]
+}

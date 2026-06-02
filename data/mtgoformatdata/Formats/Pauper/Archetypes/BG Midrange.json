@@ -1,0 +1,50 @@
+{
+  "Name": "BG Midrange",
+  "IncludeColorInName": false,
+  "Conditions": [
+    {
+      "Type": "InMainboard",
+      "Cards": ["Avenging Hunter"]
+    },
+    {
+      "Type": "OneOrMoreInMainboard",
+      "Cards": ["Cast Down", "Generous Ent"]
+    },
+    {
+      "Type": "DoesNotContainMainboard",
+      "Cards": ["Trailblazer's Torch"]
+    },
+    {
+      "Type": "DoesNotContainMainboard",
+      "Cards": ["Goliath Paladin"]
+    },
+    {
+      "Type": "DoesNotContainMainboard",
+      "Cards": ["Pestilence"]
+    },
+    {
+      "Type": "DoesNotContainMainboard",
+      "Cards": ["Writhing Chrysalis"]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": ["Boarding Party"]
+    },
+    {
+      "Type": "DoesNotContainMainboard",
+      "Cards": ["Khalni Garden"]
+    },
+    {
+      "Type": "DoesNotContainMainboard",
+      "Cards": ["Mwonvuli Acid-Moss"]
+    },
+    {
+      "Type": "DoesNotContainMainboard",
+      "Cards": ["Overgrown Battlement"]
+    },
+    {
+      "Type": "DoesNotContainMainboard",
+      "Cards": ["Priest of Titania"]
+    }
+  ]
+}
