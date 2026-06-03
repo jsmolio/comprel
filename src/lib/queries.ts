@@ -1,5 +1,6 @@
 import { prisma } from "./db";
 import { slugify } from "./slug";
+import { anchorDateForFormat } from "./analytics/aggregate";
 import {
   DEFAULT_SOURCE,
   DEFAULT_WINDOW_DAYS,
@@ -26,6 +27,13 @@ function sourceFilter(source: SourceFilter) {
   return source === "all" ? {} : { tournament: { source: { in: SOURCE_GROUP_MEMBERS[source] } } };
 }
 
+export interface Conversion {
+  top8: number;
+  elig8: number;
+  top32: number;
+  elig32: number;
+}
+
 export interface ArchetypeRow {
   archetype: string;
   slug: string;
@@ -34,6 +42,112 @@ export interface ArchetypeRow {
   metaShare: number;
   winRate: number;
   sampleMatches: number;
+  // On-demand enrichments (computed live from Deck rows, not precomputed).
+  prevShare?: number; // metaShare in the immediately-preceding equal window (trend)
+  conversion?: Conversion;
+}
+
+// SQL-safe `IN (...)` clause from the fixed source-group constants (not user input).
+function sourceSql(source: SourceFilter): string {
+  if (source === "all") return "";
+  return `AND t.source IN (${SOURCE_GROUP_MEMBERS[source].map((s) => `'${s}'`).join(",")})`;
+}
+
+/**
+ * Top-8 / Top-32 conversion per archetype, computed live. Only entries from events
+ * that published standings (rank not null) and were large enough that the cut is
+ * selective count toward the denominator — 5-0 league dumps and tiny events do not.
+ * Top-8 over events >= 16 players; Top-32 over events >= 64.
+ */
+export async function getConversionMap(
+  format: Format,
+  windowDays: number,
+  source: SourceFilter,
+): Promise<Map<string, Conversion>> {
+  const anchor = await anchorDateForFormat(format);
+  if (!anchor) return new Map();
+  const cutoff = new Date(anchor.getTime() - windowDays * 86_400_000);
+  const rows = await prisma.$queryRawUnsafe<
+    { archetype: string | null; top8: number; elig8: number; top32: number; elig32: number }[]
+  >(
+    `SELECT d.archetype,
+        count(*) FILTER (WHERE d.rank IS NOT NULL AND t."deckCount" >= 16)::int AS elig8,
+        count(*) FILTER (WHERE d.rank <= 8 AND t."deckCount" >= 16)::int AS top8,
+        count(*) FILTER (WHERE d.rank IS NOT NULL AND t."deckCount" >= 64)::int AS elig32,
+        count(*) FILTER (WHERE d.rank <= 32 AND t."deckCount" >= 64)::int AS top32
+     FROM "Deck" d JOIN "Tournament" t ON t.id = d."tournamentId"
+     WHERE d.format = $1 AND d.date >= $2 ${sourceSql(source)}
+     GROUP BY d.archetype`,
+    format,
+    cutoff,
+  );
+  const m = new Map<string, Conversion>();
+  for (const r of rows) {
+    if (r.archetype) m.set(r.archetype, { top8: r.top8, elig8: r.elig8, top32: r.top32, elig32: r.elig32 });
+  }
+  return m;
+}
+
+/** Per-archetype meta share in the window immediately before the current one (for the trend). */
+export async function getPrevShareMap(
+  format: Format,
+  windowDays: number,
+  source: SourceFilter,
+): Promise<Map<string, number>> {
+  const anchor = await anchorDateForFormat(format);
+  if (!anchor) return new Map();
+  const cutoff = new Date(anchor.getTime() - windowDays * 86_400_000);
+  const prevCutoff = new Date(cutoff.getTime() - windowDays * 86_400_000);
+  const rows = await prisma.$queryRawUnsafe<{ archetype: string | null; n: number }[]>(
+    `SELECT d.archetype, count(*)::int AS n
+     FROM "Deck" d JOIN "Tournament" t ON t.id = d."tournamentId"
+     WHERE d.format = $1 AND d.date >= $2 AND d.date < $3 ${sourceSql(source)}
+     GROUP BY d.archetype`,
+    format,
+    prevCutoff,
+    cutoff,
+  );
+  const total = rows.reduce((s, r) => s + r.n, 0);
+  const m = new Map<string, number>();
+  if (total > 0) for (const r of rows) if (r.archetype) m.set(r.archetype, r.n / total);
+  return m;
+}
+
+export interface TimelinePoint {
+  week: string; // ISO date of the week start
+  share: number; // 0..1 archetype share that week
+  n: number; // archetype decks that week
+  total: number; // total format decks that week
+}
+
+/** Weekly meta-share for one archetype over the last ~52 weeks. */
+export async function getArchetypeTimeline(
+  format: Format,
+  archetype: string,
+  source: SourceFilter,
+): Promise<TimelinePoint[]> {
+  const anchor = await anchorDateForFormat(format);
+  if (!anchor) return [];
+  const start = new Date(anchor.getTime() - 364 * 86_400_000);
+  const rows = await prisma.$queryRawUnsafe<{ week: Date; n: number; total: number }[]>(
+    `SELECT date_trunc('week', d.date) AS week,
+        count(*) FILTER (WHERE d.archetype = $3)::int AS n,
+        count(*)::int AS total
+     FROM "Deck" d JOIN "Tournament" t ON t.id = d."tournamentId"
+     WHERE d.format = $1 AND d.date >= $2 ${sourceSql(source)}
+     GROUP BY week ORDER BY week`,
+    format,
+    start,
+    archetype,
+  );
+  return rows
+    .filter((r) => r.total > 0)
+    .map((r) => ({
+      week: new Date(r.week).toISOString().slice(0, 10),
+      share: r.total ? r.n / r.total : 0,
+      n: r.n,
+      total: r.total,
+    }));
 }
 
 function toRow(s: {
@@ -69,21 +183,20 @@ export interface FormatSummary {
 export async function getFormatSummaries(): Promise<FormatSummary[]> {
   return Promise.all(
     FORMATS.map(async (format) => {
-      const stats = await prisma.archetypeStat.findMany({
-        where: { format, windowDays: DEFAULT_WINDOW_DAYS, source: DEFAULT_SOURCE },
-        orderBy: { deckCount: "desc" },
-      });
-      const latest = await prisma.deck.findFirst({
-        where: { format },
-        orderBy: { date: "desc" },
-        select: { date: true },
-      });
+      const [stats, latest, prevMap] = await Promise.all([
+        prisma.archetypeStat.findMany({
+          where: { format, windowDays: DEFAULT_WINDOW_DAYS, source: DEFAULT_SOURCE },
+          orderBy: { deckCount: "desc" },
+        }),
+        prisma.deck.findFirst({ where: { format }, orderBy: { date: "desc" }, select: { date: true } }),
+        getPrevShareMap(format, DEFAULT_WINDOW_DAYS, DEFAULT_SOURCE),
+      ]);
       return {
         format,
         decks: stats.reduce((n, s) => n + s.deckCount, 0),
         archetypes: stats.length,
         latest: latest?.date ?? null,
-        top: stats.slice(0, 4).map(toRow),
+        top: stats.slice(0, 4).map((s) => ({ ...toRow(s), prevShare: prevMap.get(s.archetype) })),
       };
     }),
   );
@@ -96,17 +209,14 @@ export interface MetaBreakdown {
 }
 
 export async function getMetaBreakdown(format: Format, windowDays: number, source: SourceFilter): Promise<MetaBreakdown> {
-  const stats = await prisma.archetypeStat.findMany({
-    where: { format, windowDays, source },
-    orderBy: { deckCount: "desc" },
-  });
-  const latest = await prisma.deck.findFirst({
-    where: { format, ...sourceFilter(source) },
-    orderBy: { date: "desc" },
-    select: { date: true },
-  });
+  const [stats, latest, convMap, prevMap] = await Promise.all([
+    prisma.archetypeStat.findMany({ where: { format, windowDays, source }, orderBy: { deckCount: "desc" } }),
+    prisma.deck.findFirst({ where: { format, ...sourceFilter(source) }, orderBy: { date: "desc" }, select: { date: true } }),
+    getConversionMap(format, windowDays, source),
+    getPrevShareMap(format, windowDays, source),
+  ]);
   return {
-    rows: stats.map(toRow),
+    rows: stats.map((s) => ({ ...toRow(s), prevShare: prevMap.get(s.archetype), conversion: convMap.get(s.archetype) })),
     totalDecks: stats.reduce((n, s) => n + s.deckCount, 0),
     latest: latest?.date ?? null,
   };
@@ -177,6 +287,7 @@ export interface ArchetypeDetail {
   stat: ArchetypeRow | null;
   matchups: MatchupRow[];
   decks: DeckView[];
+  timeline: TimelinePoint[];
 }
 
 /** Resolve a format's archetype by slug across any window (names are stable). */
@@ -198,17 +309,18 @@ export async function getArchetypeDetail(
     where: { format_windowDays_source_archetype: { format, windowDays, source, archetype } },
   });
 
-  const matchupRows = await prisma.matchupStat.findMany({
-    where: { format, windowDays, source, archetypeA: archetype },
-    orderBy: { matches: "desc" },
-  });
-
-  const deckRows = await prisma.deck.findMany({
-    where: { format, archetype, ...sourceFilter(source) },
-    orderBy: { date: "desc" },
-    take: 40,
-    include: { tournament: true },
-  });
+  const [matchupRows, deckRows, convMap, prevMap, timeline] = await Promise.all([
+    prisma.matchupStat.findMany({ where: { format, windowDays, source, archetypeA: archetype }, orderBy: { matches: "desc" } }),
+    prisma.deck.findMany({
+      where: { format, archetype, ...sourceFilter(source) },
+      orderBy: { date: "desc" },
+      take: 40,
+      include: { tournament: true },
+    }),
+    getConversionMap(format, windowDays, source),
+    getPrevShareMap(format, windowDays, source),
+    getArchetypeTimeline(format, archetype, source),
+  ]);
 
   // Best finishes first (rank asc, nulls last), then most recent.
   deckRows.sort((a, b) => (a.rank ?? 1e9) - (b.rank ?? 1e9) || b.date.getTime() - a.date.getTime());
@@ -217,7 +329,8 @@ export async function getArchetypeDetail(
     format,
     archetype,
     colorName: statRow?.colorName ?? deckRows[0]?.colorName ?? null,
-    stat: statRow ? toRow(statRow) : null,
+    stat: statRow ? { ...toRow(statRow), prevShare: prevMap.get(archetype), conversion: convMap.get(archetype) } : null,
+    timeline,
     matchups: matchupRows.map((m) => ({
       opponent: m.archetypeB,
       slug: slugify(m.archetypeB),

@@ -11,7 +11,9 @@ import { DeckList, type CardMap } from "@/components/DeckList";
 import { VideoSection } from "@/components/VideoSection";
 import { youtubeEnabled } from "@/lib/sources/youtube";
 import { ColorPips } from "@/components/ColorPips";
-import { fmtDate, pageQuery, pct, winrateColor } from "@/lib/ui";
+import { TrendBadge } from "@/components/TrendBadge";
+import { ShareChart } from "@/components/ShareChart";
+import { conversionRate, fmtDate, pageQuery, pct, winrateColor } from "@/lib/ui";
 import type { BoardCard } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -44,6 +46,8 @@ export default async function ArchetypePage({
   const cards = cardMap as unknown as CardMap;
 
   const stat = detail.stat;
+  const top8 = conversionRate(stat?.conversion?.top8, stat?.conversion?.elig8);
+  const top32 = conversionRate(stat?.conversion?.top32, stat?.conversion?.elig32);
 
   return (
     <div className="space-y-8">
@@ -58,8 +62,8 @@ export default async function ArchetypePage({
             / {detail.archetype}
           </nav>
           <h1 className="flex items-center gap-2 text-2xl font-bold tracking-tight">
-            <ColorPips colorId={colorNameToId(detail.colorName)} size={16} />
             {detail.archetype}
+            <ColorPips colorId={colorNameToId(detail.colorName)} size={16} />
           </h1>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -69,9 +73,24 @@ export default async function ArchetypePage({
       </div>
 
       {stat && (
-        <section className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-          <Stat label="Meta share" value={pct(stat.metaShare, 1)} />
+        <section className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+          <Stat
+            label="Meta share"
+            value={pct(stat.metaShare, 1)}
+            extra={<TrendBadge current={stat.metaShare} prev={stat.prevShare} className="text-sm" />}
+            hint={stat.prevShare !== undefined ? "vs previous window" : undefined}
+          />
           <Stat label="Decks (window)" value={String(stat.deckCount)} />
+          <Stat
+            label="Top 8 conversion"
+            value={top8 !== null ? pct(top8, 1) : "—"}
+            hint={stat.conversion?.elig8 ? `${stat.conversion.top8}/${stat.conversion.elig8} in cut events` : "small sample"}
+          />
+          <Stat
+            label="Top 32 conversion"
+            value={top32 !== null ? pct(top32, 1) : "—"}
+            hint={stat.conversion?.elig32 ? `${stat.conversion.top32}/${stat.conversion.elig32} in 64+ events` : "small sample"}
+          />
           <Stat
             label="Aggregate win rate"
             value={stat.sampleMatches > 0 ? pct(stat.winRate, 1) : "—"}
@@ -81,6 +100,16 @@ export default async function ArchetypePage({
           <Stat label="H2H matchups" value={String(detail.matchups.length)} hint="vs other archetypes" />
         </section>
       )}
+
+      <section className="space-y-3">
+        <div>
+          <h2 className="text-lg font-semibold">Meta share over time</h2>
+          <p className="text-sm text-neutral-500">
+            Weekly share of the {format} field over the last 12 months. Amber lines mark B&amp;R announcements affecting {format}.
+          </p>
+        </div>
+        <ShareChart points={detail.timeline} format={format} />
+      </section>
 
       <section className="space-y-3">
         <div>
@@ -146,12 +175,27 @@ export default async function ArchetypePage({
   );
 }
 
-function Stat({ label, value, hint, color }: { label: string; value: string; hint?: string; color?: string }) {
+function Stat({
+  label,
+  value,
+  hint,
+  color,
+  extra,
+}: {
+  label: string;
+  value: string;
+  hint?: string;
+  color?: string;
+  extra?: React.ReactNode;
+}) {
   return (
     <div className="rounded-lg border border-neutral-800 bg-neutral-900/40 p-3">
       <div className="text-xs uppercase tracking-wide text-neutral-500">{label}</div>
-      <div className="mt-1 text-xl font-semibold tabular-nums" style={color ? { color } : undefined}>
-        {value}
+      <div className="mt-1 flex items-baseline gap-2">
+        <span className="text-xl font-semibold tabular-nums" style={color ? { color } : undefined}>
+          {value}
+        </span>
+        {extra}
       </div>
       {hint && <div className="text-xs text-neutral-600">{hint}</div>}
     </div>

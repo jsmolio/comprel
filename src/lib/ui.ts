@@ -10,6 +10,15 @@ export function pct(p: number, digits = 0): string {
   return `${(p * 100).toFixed(digits)}%`;
 }
 
+/**
+ * Conversion rate (e.g. Top-8) from a numerator/denominator, or null when the
+ * eligible sample is too small to be meaningful (so callers can render "—").
+ */
+export function conversionRate(top: number | undefined, elig: number | undefined, minSample = 20): number | null {
+  if (!elig || elig < minSample) return null;
+  return (top ?? 0) / elig;
+}
+
 /** Build the page query string that carries both the window and source filters. */
 export function pageQuery(windowDays: number, source: string): string {
   return `?window=${windowDays}&source=${source}`;

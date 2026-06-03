@@ -34,7 +34,7 @@ const SOURCE_GROUPS: { key: SourceFilter; sources?: string[] }[] = [
 // rather than the absolute max, so a lone stray tournament does not strand the
 // window past the real bulk of the data. Computed across all sources so a given
 // window covers the same calendar range for every source filter.
-async function anchorDateForFormat(format: Format): Promise<Date | null> {
+export async function anchorDateForFormat(format: Format): Promise<Date | null> {
   const rows = await prisma.deck.findMany({
     where: { format },
     orderBy: { date: "desc" },

@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { getFormatSummaries } from "@/lib/queries";
 import { ColorPips } from "@/components/ColorPips";
+import { TrendBadge } from "@/components/TrendBadge";
 import { colorNameToId } from "@/lib/archetype/colors";
 import { fmtDate, pct } from "@/lib/ui";
 
@@ -44,9 +45,10 @@ export default async function Home() {
               <ul className="space-y-1.5">
                 {s.top.map((t) => (
                   <li key={t.archetype} className="flex items-center gap-2 text-sm">
+                    <span className="min-w-0 flex-1 truncate text-neutral-300">{t.archetype}</span>
                     <ColorPips colorId={colorNameToId(t.colorName)} size={11} />
-                    <span className="flex-1 truncate text-neutral-300">{t.archetype}</span>
-                    <span className="tabular-nums text-neutral-500">{pct(t.metaShare, 1)}</span>
+                    <span className="w-11 text-right tabular-nums text-neutral-500">{pct(t.metaShare, 1)}</span>
+                    <TrendBadge current={t.metaShare} prev={t.prevShare} className="w-12 justify-end text-xs" />
                   </li>
                 ))}
               </ul>
