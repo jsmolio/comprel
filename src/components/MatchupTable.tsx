@@ -1,4 +1,6 @@
-import Link from "next/link";
+"use client";
+
+import { useState } from "react";
 import type { MatchupRow } from "@/lib/queries";
 import { pct, winrateColor } from "@/lib/ui";
 
@@ -16,23 +18,64 @@ function ConfidenceBar({ p, low, high }: { p: number; low: number; high: number 
   );
 }
 
+type SortKey = "opponent" | "winRateA" | "winsA" | "matches" | "ciLow";
+
+// Each header maps to a sort key. "Record" sorts by match wins, "95% CI" by the
+// lower confidence bound. Numeric columns default to descending on first click.
+const COLUMNS: { key: SortKey; label: string; th: string; numeric: boolean }[] = [
+  { key: "opponent", label: "Opponent", th: "py-2 pr-2", numeric: false },
+  { key: "winRateA", label: "Win rate", th: "py-2 pr-2 text-right", numeric: true },
+  { key: "winsA", label: "Record", th: "py-2 pr-2 text-right", numeric: true },
+  { key: "matches", label: "n", th: "py-2 pr-2 text-right", numeric: true },
+  { key: "ciLow", label: "95% CI", th: "py-2 pl-2", numeric: true },
+];
+
 export function MatchupTable({ rows }: { rows: MatchupRow[]; formatSlug: string; windowDays: number }) {
+  // Default to the original order: sample size (n), descending.
+  const [sort, setSort] = useState<{ key: SortKey; dir: "asc" | "desc" }>({ key: "matches", dir: "desc" });
+
   if (rows.length === 0) {
     return <p className="text-sm text-neutral-500">No head-to-head pairing data for this deck in the selected window.</p>;
   }
+
+  const sorted = [...rows].sort((a, b) => {
+    const cmp =
+      sort.key === "opponent" ? a.opponent.localeCompare(b.opponent) : (a[sort.key] as number) - (b[sort.key] as number);
+    return sort.dir === "asc" ? cmp : -cmp;
+  });
+
+  const toggle = (key: SortKey, numeric: boolean) =>
+    setSort((s) => (s.key === key ? { key, dir: s.dir === "asc" ? "desc" : "asc" } : { key, dir: numeric ? "desc" : "asc" }));
+
   return (
     <table className="w-full border-collapse text-sm">
       <thead>
         <tr className="border-b border-neutral-800 text-left text-xs uppercase tracking-wide text-neutral-500">
-          <th className="py-2 pr-2 font-medium">Opponent</th>
-          <th className="py-2 pr-2 text-right font-medium">Win rate</th>
-          <th className="py-2 pr-2 text-right font-medium">Record</th>
-          <th className="py-2 pr-2 text-right font-medium">n</th>
-          <th className="py-2 pl-2 font-medium">95% CI</th>
+          {COLUMNS.map((c) => (
+            <th
+              key={c.key}
+              className={`${c.th} font-medium`}
+              aria-sort={sort.key === c.key ? (sort.dir === "asc" ? "ascending" : "descending") : "none"}
+            >
+              <button
+                type="button"
+                onClick={() => toggle(c.key, c.numeric)}
+                title="Click to sort"
+                className={`cursor-pointer select-none whitespace-nowrap uppercase tracking-wide hover:text-neutral-300 ${
+                  sort.key === c.key ? "text-neutral-200" : ""
+                }`}
+              >
+                {c.label}
+                <span className="ml-0.5 inline-block w-3 text-left">
+                  {sort.key === c.key ? (sort.dir === "asc" ? "▲" : "▼") : ""}
+                </span>
+              </button>
+            </th>
+          ))}
         </tr>
       </thead>
       <tbody>
-        {rows.map((r) => (
+        {sorted.map((r) => (
           <tr key={r.opponent} className="border-b border-neutral-900">
             <td className="py-2 pr-2 text-neutral-200">{r.opponent}</td>
             <td className="py-2 pr-2 text-right">

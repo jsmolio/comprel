@@ -358,7 +358,7 @@ export async function getArchetypeDetail(
   const [matchupRows, deckRows, convMap, prevMap, timeline] = await Promise.all([
     prisma.matchupStat.findMany({
       where: { format, windowDays, source, archetypeA: archetype },
-      orderBy: [{ winRateA: "desc" }, { matches: "desc" }],
+      orderBy: { matches: "desc" },
     }),
     prisma.deck.findMany({
       where: { format, archetype, ...sourceFilter(source) },
@@ -374,22 +374,13 @@ export async function getArchetypeDetail(
   // Best finishes first (rank asc, nulls last), then most recent.
   deckRows.sort((a, b) => (a.rank ?? 1e9) - (b.rank ?? 1e9) || b.date.getTime() - a.date.getTime());
 
-  // Rank matchups by win rate (the query already sorts winRateA desc), but float
-  // low-sample matchups (< 8 games) below the well-established ones so a lone
-  // 100% from 1–2 games doesn't top the list. Each group stays win-rate-ordered.
-  const RELIABLE_MATCHUP = 8;
-  const orderedMatchups = [
-    ...matchupRows.filter((m) => m.matches >= RELIABLE_MATCHUP),
-    ...matchupRows.filter((m) => m.matches < RELIABLE_MATCHUP),
-  ];
-
   return {
     format,
     archetype,
     colorName: statRow?.colorName ?? deckRows[0]?.colorName ?? null,
     stat: statRow ? { ...toRow(statRow), prevShare: prevMap.get(archetype), conversion: convMap.get(archetype) } : null,
     timeline,
-    matchups: orderedMatchups.map((m) => ({
+    matchups: matchupRows.map((m) => ({
       opponent: m.archetypeB,
       slug: slugify(m.archetypeB),
       winRateA: m.winRateA,
