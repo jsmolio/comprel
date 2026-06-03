@@ -1,0 +1,36 @@
+name: Scheduled ingest
+
+# Runs the incremental ingest (import new tournaments -> classify -> aggregate
+# -> enrich cards) against the production Postgres. Lives here instead of a
+# Vercel Cron because the full aggregation (~1 min) exceeds serverless limits.
+
+on:
+  schedule:
+    - cron: "0 */6 * * *" # every 6 hours (UTC)
+  workflow_dispatch: {} # allow manual runs from the Actions tab
+
+concurrency:
+  group: comprel-ingest
+  cancel-in-progress: false
+
+jobs:
+  ingest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Incremental ingest
+        run: pnpm ingest --incremental --keep-boards-days=30 --retention-days=365
+        env:
+          # Use the DIRECT (non-pooled) connection for this batch job.
+          DATABASE_URL: ${{ secrets.DIRECT_URL }}
+          # Raises GitHub API rate limit for cache discovery (auto-provided).
+          GITHUB_TOKEN: ${{ github.token }}
