@@ -356,7 +356,10 @@ export async function getArchetypeDetail(
   });
 
   const [matchupRows, deckRows, convMap, prevMap, timeline] = await Promise.all([
-    prisma.matchupStat.findMany({ where: { format, windowDays, source, archetypeA: archetype }, orderBy: { matches: "desc" } }),
+    prisma.matchupStat.findMany({
+      where: { format, windowDays, source, archetypeA: archetype },
+      orderBy: [{ winRateA: "desc" }, { matches: "desc" }],
+    }),
     prisma.deck.findMany({
       where: { format, archetype, ...sourceFilter(source) },
       orderBy: { date: "desc" },
