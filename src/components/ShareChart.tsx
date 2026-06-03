@@ -1,3 +1,6 @@
+"use client";
+
+import { useState } from "react";
 import type { TimelinePoint, BanMarker } from "@/lib/queries";
 import type { Format } from "@/lib/types";
 import { pct } from "@/lib/ui";
@@ -8,15 +11,25 @@ const monthLabel = (t: number) => {
   return `${MON[d.getUTCMonth()]} '${String(d.getUTCFullYear()).slice(2)}`;
 };
 
+type Mode = "total" | "top10";
+
 /**
  * Dependency-free SVG of an archetype's weekly meta share over the last ~12 months,
- * with dashed amber markers at B&R announcements that affected this format (#5).
- * `bans` is the merged curated + auto-detected list passed in by the caller.
+ * with dashed amber markers at B&R announcements affecting this format (#5), and a
+ * toggle between share-of-the-whole-field and share-of-the-top-10-archetypes.
  */
 export function ShareChart({ points, format, bans }: { points: TimelinePoint[]; format: Format; bans: BanMarker[] }) {
+  const [mode, setMode] = useState<Mode>("total");
+
   if (points.length < 3) {
     return <p className="text-sm text-neutral-500">Not enough history yet to chart this deck&apos;s share over time.</p>;
   }
+
+  const denomOf = (p: TimelinePoint) => (mode === "total" ? p.total : p.top10);
+  const shareOf = (p: TimelinePoint) => {
+    const d = denomOf(p);
+    return d > 0 ? p.n / d : 0;
+  };
 
   const W = 760;
   const H = 200;
@@ -28,26 +41,47 @@ export function ShareChart({ points, format, bans }: { points: TimelinePoint[]; 
   const innerH = H - padT - padB;
 
   const times = points.map((p) => Date.parse(p.week));
+  const shares = points.map(shareOf);
   const minX = times[0];
   const maxX = times[times.length - 1];
   const spanX = maxX - minX || 1;
-  const maxShare = Math.max(0.02, ...points.map((p) => p.share));
+  const maxShare = Math.max(0.02, ...shares);
 
   const X = (t: number) => padL + ((t - minX) / spanX) * innerW;
   const Y = (s: number) => padT + (1 - s / maxShare) * innerH;
 
-  const linePath = points.map((p, i) => `${i ? "L" : "M"}${X(times[i]).toFixed(1)},${Y(p.share).toFixed(1)}`).join(" ");
+  const linePath = points.map((p, i) => `${i ? "L" : "M"}${X(times[i]).toFixed(1)},${Y(shares[i]).toFixed(1)}`).join(" ");
   const areaPath = `${linePath} L${X(maxX).toFixed(1)},${(padT + innerH).toFixed(1)} L${X(minX).toFixed(1)},${(padT + innerH).toFixed(1)} Z`;
 
   const yTicks = [0, maxShare / 2, maxShare];
   const xIdx = [0, Math.floor(points.length / 2), points.length - 1];
 
-  const marks = bans
-    .map((b) => ({ ...b, t: Date.parse(b.date) }))
-    .filter((b) => b.t >= minX && b.t <= maxX);
+  const marks = bans.map((b) => ({ ...b, t: Date.parse(b.date) })).filter((b) => b.t >= minX && b.t <= maxX);
+
+  const tab = (m: Mode, label: string) => (
+    <button
+      type="button"
+      onClick={() => setMode(m)}
+      className={`rounded px-2 py-1 transition-colors ${
+        mode === m ? "bg-emerald-600 text-white" : "text-neutral-400 hover:text-neutral-200"
+      }`}
+    >
+      {label}
+    </button>
+  );
 
   return (
     <figure className="rounded-xl border border-neutral-800 bg-neutral-900/40 p-3">
+      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+        <div className="inline-flex rounded-md border border-neutral-800 bg-neutral-900 p-0.5 text-xs font-medium">
+          {tab("total", "Total meta")}
+          {tab("top10", "Top 10 decks")}
+        </div>
+        <span className="text-xs text-neutral-500">
+          {mode === "total" ? "share of the entire field" : "share among the top-10 archetypes"}
+        </span>
+      </div>
+
       <svg viewBox={`0 0 ${W} ${H}`} className="w-full" role="img" aria-label={`${format} meta share over time`}>
         {yTicks.map((s, i) => (
           <g key={`y${i}`}>
@@ -71,8 +105,8 @@ export function ShareChart({ points, format, bans }: { points: TimelinePoint[]; 
         <path d={linePath} fill="none" stroke="#10b981" strokeWidth={1.75} strokeLinejoin="round" />
 
         {points.map((p, i) => (
-          <circle key={`p${i}`} cx={X(times[i])} cy={Y(p.share)} r={4} fill="transparent">
-            <title>{`Week of ${p.week}: ${pct(p.share, 1)} (${p.n}/${p.total} decks)`}</title>
+          <circle key={`p${i}`} cx={X(times[i])} cy={Y(shares[i])} r={4} fill="transparent">
+            <title>{`Week of ${p.week}: ${pct(shares[i], 1)} (${p.n}/${denomOf(p)} decks)`}</title>
           </circle>
         ))}
 
@@ -89,6 +123,7 @@ export function ShareChart({ points, format, bans }: { points: TimelinePoint[]; 
           </text>
         ))}
       </svg>
+
       {marks.length > 0 && (
         <figcaption className="mt-1 flex items-center gap-1.5 text-xs text-neutral-500">
           <span className="inline-block h-2 w-2 rounded-full bg-amber-500" aria-hidden /> dashed lines mark B&amp;R announcements affecting {format} (hover for details)

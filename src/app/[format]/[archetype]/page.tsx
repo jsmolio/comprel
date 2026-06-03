@@ -109,7 +109,8 @@ export default async function ArchetypePage({
         <div>
           <h2 className="text-lg font-semibold">Meta share over time</h2>
           <p className="text-sm text-neutral-500">
-            Weekly share of the {format} field over the last 12 months. Amber lines mark B&amp;R announcements affecting {format}.
+            Weekly share over the last 12 months — toggle between share of the whole {format} field and share among just the
+            top-10 decks. Amber lines mark B&amp;R announcements affecting {format}.
           </p>
         </div>
         <ShareChart points={detail.timeline} format={format} bans={banMarkers} />

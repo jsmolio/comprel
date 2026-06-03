@@ -116,12 +116,16 @@ export async function getPrevShareMap(
 
 export interface TimelinePoint {
   week: string; // ISO date of the week start
-  share: number; // 0..1 archetype share that week
   n: number; // archetype decks that week
-  total: number; // total format decks that week
+  total: number; // all format decks that week
+  top10: number; // decks from the format's top-10 archetypes that week
 }
 
-/** Weekly meta-share for one archetype over the last ~52 weeks. */
+/**
+ * Weekly deck counts for one archetype over the last ~52 weeks, plus two
+ * denominators: the whole field (`total`) and just the top-10 archetypes
+ * (`top10`). The chart toggles which denominator it divides by.
+ */
 export async function getArchetypeTimeline(
   format: Format,
   archetype: string,
@@ -130,10 +134,22 @@ export async function getArchetypeTimeline(
   const anchor = await anchorDateForFormat(format);
   if (!anchor) return [];
   const start = new Date(anchor.getTime() - 364 * 86_400_000);
-  const rows = await prisma.$queryRawUnsafe<{ week: Date; n: number; total: number }[]>(
+
+  // Top-10 archetypes over the chart range (from the precomputed 365-day stats).
+  const top = await prisma.archetypeStat.findMany({
+    where: { format, windowDays: 365, source },
+    orderBy: { deckCount: "desc" },
+    take: 10,
+    select: { archetype: true },
+  });
+  // Names come from our own DB; single quotes are doubled so apostrophe'd names are safe.
+  const inList = top.length ? top.map((t) => `'${t.archetype.replace(/'/g, "''")}'`).join(",") : "''";
+
+  const rows = await prisma.$queryRawUnsafe<{ week: Date; n: number; total: number; top10: number }[]>(
     `SELECT date_trunc('week', d.date) AS week,
         count(*) FILTER (WHERE d.archetype = $3)::int AS n,
-        count(*)::int AS total
+        count(*)::int AS total,
+        count(*) FILTER (WHERE d.archetype IN (${inList}))::int AS top10
      FROM "Deck" d JOIN "Tournament" t ON t.id = d."tournamentId"
      WHERE d.format = $1 AND d.date >= $2 ${sourceSql(source)}
      GROUP BY week ORDER BY week`,
@@ -145,9 +161,9 @@ export async function getArchetypeTimeline(
     .filter((r) => r.total > 0)
     .map((r) => ({
       week: new Date(r.week).toISOString().slice(0, 10),
-      share: r.total ? r.n / r.total : 0,
       n: r.n,
       total: r.total,
+      top10: r.top10,
     }));
 }
 
