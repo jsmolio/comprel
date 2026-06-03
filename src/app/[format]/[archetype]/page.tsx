@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { getArchetypeDetail, getArchetypeVideos, getCardMap, normalizeSource, normalizeWindow } from "@/lib/queries";
+import { getArchetypeDetail, getArchetypeVideos, getBanMarkers, getCardMap, normalizeSource, normalizeWindow } from "@/lib/queries";
 import { resolveFormat } from "@/lib/slug";
 import { colorNameToId } from "@/lib/archetype/colors";
 import { FormatTabs } from "@/components/FormatTabs";
@@ -42,7 +42,11 @@ export default async function ArchetypePage({
     for (const c of d.mainboard) names.add(c.name);
     for (const c of d.sideboard) names.add(c.name);
   }
-  const [cardMap, videos] = await Promise.all([getCardMap([...names]), getArchetypeVideos(format, detail.archetype)]);
+  const [cardMap, videos, banMarkers] = await Promise.all([
+    getCardMap([...names]),
+    getArchetypeVideos(format, detail.archetype),
+    getBanMarkers(format),
+  ]);
   const cards = cardMap as unknown as CardMap;
 
   const stat = detail.stat;
@@ -108,7 +112,7 @@ export default async function ArchetypePage({
             Weekly share of the {format} field over the last 12 months. Amber lines mark B&amp;R announcements affecting {format}.
           </p>
         </div>
-        <ShareChart points={detail.timeline} format={format} />
+        <ShareChart points={detail.timeline} format={format} bans={banMarkers} />
       </section>
 
       <section className="space-y-3">

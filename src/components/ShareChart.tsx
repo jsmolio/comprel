@@ -1,5 +1,4 @@
-import type { TimelinePoint } from "@/lib/queries";
-import { BANS } from "@/lib/banlist";
+import type { TimelinePoint, BanMarker } from "@/lib/queries";
 import type { Format } from "@/lib/types";
 import { pct } from "@/lib/ui";
 
@@ -12,8 +11,9 @@ const monthLabel = (t: number) => {
 /**
  * Dependency-free SVG of an archetype's weekly meta share over the last ~12 months,
  * with dashed amber markers at B&R announcements that affected this format (#5).
+ * `bans` is the merged curated + auto-detected list passed in by the caller.
  */
-export function ShareChart({ points, format }: { points: TimelinePoint[]; format: Format }) {
+export function ShareChart({ points, format, bans }: { points: TimelinePoint[]; format: Format; bans: BanMarker[] }) {
   if (points.length < 3) {
     return <p className="text-sm text-neutral-500">Not enough history yet to chart this deck&apos;s share over time.</p>;
   }
@@ -42,7 +42,7 @@ export function ShareChart({ points, format }: { points: TimelinePoint[]; format
   const yTicks = [0, maxShare / 2, maxShare];
   const xIdx = [0, Math.floor(points.length / 2), points.length - 1];
 
-  const bans = BANS[format]
+  const marks = bans
     .map((b) => ({ ...b, t: Date.parse(b.date) }))
     .filter((b) => b.t >= minX && b.t <= maxX);
 
@@ -58,7 +58,7 @@ export function ShareChart({ points, format }: { points: TimelinePoint[]; format
           </g>
         ))}
 
-        {bans.map((b, i) => (
+        {marks.map((b, i) => (
           <g key={`b${i}`}>
             <line x1={X(b.t)} x2={X(b.t)} y1={padT} y2={padT + innerH} stroke="#f59e0b" strokeWidth={1} strokeDasharray="3 3" opacity={0.75} />
             <circle cx={X(b.t)} cy={padT} r={3} fill="#f59e0b">
@@ -89,7 +89,7 @@ export function ShareChart({ points, format }: { points: TimelinePoint[]; format
           </text>
         ))}
       </svg>
-      {bans.length > 0 && (
+      {marks.length > 0 && (
         <figcaption className="mt-1 flex items-center gap-1.5 text-xs text-neutral-500">
           <span className="inline-block h-2 w-2 rounded-full bg-amber-500" aria-hidden /> dashed lines mark B&amp;R announcements affecting {format} (hover for details)
         </figcaption>

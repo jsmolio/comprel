@@ -147,3 +147,27 @@ model Video {
 
   @@index([format, archetype])
 }
+
+/// Auto-detected Banned & Restricted changes, diffed from Scryfall legality on each
+/// ingest. Curated historical dates live in src/lib/banlist.ts; this table holds
+/// changes detected going forward, merged with the curated list on the timeline.
+model BanEvent {
+  id        String   @id @default(cuid())
+  format    String
+  date      DateTime // day the change was detected (≈ the announcement date)
+  card      String
+  action    String // banned | unbanned | restricted | unrestricted
+  createdAt DateTime @default(now())
+
+  @@unique([format, card, action, date])
+  @@index([format, date])
+}
+
+/// Snapshot of each format's current banned/restricted card lists so the next
+/// ingest can detect what changed. One row per format.
+model BanSnapshot {
+  format     String   @id
+  banned     Json // string[] of card names
+  restricted Json // string[] of card names
+  updatedAt  DateTime @default(now())
+}

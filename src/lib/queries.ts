@@ -1,6 +1,7 @@
 import { prisma } from "./db";
 import { slugify } from "./slug";
 import { anchorDateForFormat } from "./analytics/aggregate";
+import { BANS } from "./banlist";
 import {
   DEFAULT_SOURCE,
   DEFAULT_WINDOW_DAYS,
@@ -148,6 +149,35 @@ export async function getArchetypeTimeline(
       n: r.n,
       total: r.total,
     }));
+}
+
+export interface BanMarker {
+  date: string; // YYYY-MM-DD
+  label: string;
+}
+
+/**
+ * B&R markers for a format's timeline: the curated historical list merged with
+ * changes auto-detected from Scryfall (the BanEvent table). Same-day auto changes
+ * collapse into one marker; a curated entry wins for a given date. Falls back to
+ * curated-only if the BanEvent table hasn't been migrated yet.
+ */
+export async function getBanMarkers(format: Format): Promise<BanMarker[]> {
+  const curated: BanMarker[] = BANS[format].map((b) => ({ date: b.date, label: b.label }));
+  let auto: BanMarker[] = [];
+  try {
+    const rows = await prisma.banEvent.findMany({ where: { format }, orderBy: { date: "asc" } });
+    const byDate = new Map<string, string[]>();
+    for (const r of rows) {
+      const d = r.date.toISOString().slice(0, 10);
+      byDate.set(d, [...(byDate.get(d) ?? []), `${r.card} ${r.action}`]);
+    }
+    auto = [...byDate.entries()].map(([date, parts]) => ({ date, label: parts.join(", ") }));
+  } catch {
+    // BanEvent table not present yet — show curated history only.
+  }
+  const seen = new Set(curated.map((c) => c.date));
+  return [...curated, ...auto.filter((a) => !seen.has(a.date))].sort((x, y) => x.date.localeCompare(y.date));
 }
 
 function toRow(s: {

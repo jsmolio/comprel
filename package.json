@@ -15,7 +15,9 @@
     "ingest": "tsx scripts/ingest.ts",
     "ingest:incremental": "tsx scripts/ingest.ts --incremental",
     "watch": "tsx scripts/watch.ts",
-    "aggregate": "tsx scripts/ingest.ts --aggregate-only"
+    "aggregate": "tsx scripts/ingest.ts --aggregate-only",
+    "sync-bans": "tsx scripts/sync-bans.ts",
+    "enrich": "tsx scripts/enrich.ts"
   },
   "dependencies": {
     "@prisma/client": "^6.19.3",

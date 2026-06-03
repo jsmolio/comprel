@@ -14,6 +14,7 @@ try {
 import { importMtgoCache } from "../src/lib/sources/mtgodecklistcache";
 import { computeAllAggregates } from "../src/lib/analytics/aggregate";
 import { enrichCardsFromDb } from "../src/lib/sources/scryfall";
+import { syncBanlist } from "../src/lib/sources/banlist-sync";
 import { pruneOldData } from "../src/lib/retention";
 import { prisma } from "../src/lib/db";
 
@@ -53,6 +54,14 @@ async function main() {
     console.log("→ Enriching cards from Scryfall…");
     const n = await enrichCardsFromDb((m) => console.log(m));
     console.log(`  enriched ${n} cards`);
+
+    try {
+      console.log("→ Syncing B&R changes from Scryfall…");
+      const { detected } = await syncBanlist((m) => console.log(m));
+      console.log(`  ${detected} B&R change(s) recorded`);
+    } catch (e) {
+      console.log(`  ! B&R sync skipped: ${(e as Error).message}`);
+    }
   }
 
   await prisma.$disconnect();
