@@ -11,11 +11,11 @@ import type { BoardCard, Format, RawCacheItem, RawDeck, RawStanding } from "../t
 // calls); file bodies come from raw.githubusercontent.com, which is not subject
 // to the API rate limit. https://github.com/fbettega/MTG_decklistcache
 
-const REPO = "fbettega/MTG_decklistcache";
+export const REPO = "fbettega/MTG_decklistcache";
 const API = "https://api.github.com";
 
 // Repo source folder -> friendly label stored on each tournament/deck.
-const SOURCE_LABELS: Record<string, string> = {
+export const SOURCE_LABELS: Record<string, string> = {
   MTGmelee: "melee.gg",
   MTGO: "mtgo.com",
   Topdeck: "topdeck.gg",

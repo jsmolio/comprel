@@ -28,6 +28,7 @@ async function main() {
   const aggregateOnly = args.has("--aggregate-only");
   const incremental = args.has("--incremental");
   const days = Number(flag("days")) || (incremental ? 5 : 12);
+  const boardsPerArchetype = Number(flag("boards-per-archetype")) || undefined;
   const keepBoardsDays = Number(flag("keep-boards-days")) || undefined;
   const retentionDays = Number(flag("retention-days")) || undefined;
 
@@ -42,9 +43,9 @@ async function main() {
     console.log("  import summary:", JSON.stringify(summary));
   }
 
-  if (!aggregateOnly && (keepBoardsDays || retentionDays)) {
+  if (!aggregateOnly && (boardsPerArchetype || keepBoardsDays || retentionDays)) {
     console.log("→ Pruning old data (retention + slim boards)…");
-    await pruneOldData({ keepBoardsDays, retentionDays, log: (m) => console.log(m) });
+    await pruneOldData({ boardsPerArchetype, keepBoardsDays, retentionDays, log: (m) => console.log(m) });
   }
 
   console.log("→ Computing metagame + matchup aggregates…");

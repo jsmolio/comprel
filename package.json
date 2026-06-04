@@ -17,7 +17,8 @@
     "watch": "tsx scripts/watch.ts",
     "aggregate": "tsx scripts/ingest.ts --aggregate-only",
     "sync-bans": "tsx scripts/sync-bans.ts",
-    "enrich": "tsx scripts/enrich.ts"
+    "enrich": "tsx scripts/enrich.ts",
+    "backfill-boards": "tsx scripts/backfill-boards.ts"
   },
   "dependencies": {
     "@prisma/client": "^6.19.3",

@@ -363,7 +363,7 @@ export async function getArchetypeDetail(
     prisma.deck.findMany({
       where: { format, archetype, ...sourceFilter(source) },
       orderBy: { date: "desc" },
-      take: 40,
+      take: 60,
       include: { tournament: true },
     }),
     getConversionMap(format, windowDays, source),
@@ -371,8 +371,10 @@ export async function getArchetypeDetail(
     getArchetypeTimeline(format, archetype, source),
   ]);
 
-  // Best finishes first (rank asc, nulls last), then most recent.
-  deckRows.sort((a, b) => (a.rank ?? 1e9) - (b.rank ?? 1e9) || b.date.getTime() - a.date.getTime());
+  // Show only decks that still carry their card lists (older ones are slimmed to
+  // bound storage). Best finishes first among them, then most recent.
+  const boardedDecks = deckRows.filter((d) => Array.isArray(d.mainboard) && (d.mainboard as unknown[]).length > 0);
+  boardedDecks.sort((a, b) => (a.rank ?? 1e9) - (b.rank ?? 1e9) || b.date.getTime() - a.date.getTime());
 
   return {
     format,
@@ -391,7 +393,7 @@ export async function getArchetypeDetail(
       ciLow: m.ciLow,
       ciHigh: m.ciHigh,
     })),
-    decks: deckRows.slice(0, 6).map((d) => ({
+    decks: boardedDecks.slice(0, 5).map((d) => ({
       id: d.id,
       player: d.player,
       result: d.result,

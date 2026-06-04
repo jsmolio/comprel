@@ -28,7 +28,7 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - name: Incremental ingest
-        run: pnpm ingest --incremental --keep-boards-days=30 --retention-days=365
+        run: pnpm ingest --incremental --boards-per-archetype=5 --retention-days=365
         env:
           # Use the DIRECT (non-pooled) connection for this batch job.
           DATABASE_URL: ${{ secrets.DIRECT_URL }}
