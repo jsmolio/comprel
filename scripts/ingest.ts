@@ -12,6 +12,7 @@ try {
 }
 
 import { importMtgoCache } from "../src/lib/sources/mtgodecklistcache";
+import { importMtgo } from "../src/lib/sources/mtgo";
 import { computeAllAggregates } from "../src/lib/analytics/aggregate";
 import { enrichCardsFromDb } from "../src/lib/sources/scryfall";
 import { syncBanlist } from "../src/lib/sources/banlist-sync";
@@ -32,6 +33,9 @@ async function main() {
   const keepBoardsDays = Number(flag("keep-boards-days")) || undefined;
   const retentionDays = Number(flag("retention-days")) || undefined;
 
+  let newTournaments = 0;
+  let mtgoBroken = false;
+
   if (!aggregateOnly) {
     console.log(`→ Importing tournaments from MTGODecklistCache${incremental ? " (incremental)" : ""}…`);
     const summary = await importMtgoCache({
@@ -41,6 +45,16 @@ async function main() {
       log: (m) => console.log(m),
     });
     console.log("  import summary:", JSON.stringify(summary));
+    newTournaments += summary.tournaments;
+
+    if (!args.has("--no-mtgo")) {
+      console.log("→ Scraping MTGO directly for same-day results…");
+      const mtgo = await importMtgo({ days: 4, log: (m) => console.log(m) });
+      console.log("  mtgo:", JSON.stringify(mtgo));
+      newTournaments += mtgo.events;
+      // "Broken" = listing unreachable, or events found but none parsed (page structure changed).
+      mtgoBroken = !mtgo.indexOk || (mtgo.found > 0 && mtgo.events === 0);
+    }
   }
 
   if (!aggregateOnly && (boardsPerArchetype || keepBoardsDays || retentionDays)) {
@@ -48,13 +62,19 @@ async function main() {
     await pruneOldData({ boardsPerArchetype, keepBoardsDays, retentionDays, log: (m) => console.log(m) });
   }
 
-  console.log("→ Computing metagame + matchup aggregates…");
-  await computeAllAggregates((m) => console.log(m));
+  if (aggregateOnly || newTournaments > 0) {
+    console.log("→ Computing metagame + matchup aggregates…");
+    await computeAllAggregates((m) => console.log(m));
+  } else {
+    console.log("→ No new tournaments — skipping aggregate + card enrichment.");
+  }
 
   if (!aggregateOnly && !args.has("--no-scryfall")) {
-    console.log("→ Enriching cards from Scryfall…");
-    const n = await enrichCardsFromDb((m) => console.log(m));
-    console.log(`  enriched ${n} cards`);
+    if (newTournaments > 0) {
+      console.log("→ Enriching cards from Scryfall…");
+      const n = await enrichCardsFromDb((m) => console.log(m));
+      console.log(`  enriched ${n} cards`);
+    }
 
     try {
       console.log("→ Syncing B&R changes from Scryfall…");
@@ -66,6 +86,11 @@ async function main() {
   }
 
   await prisma.$disconnect();
+
+  if (mtgoBroken) {
+    console.error("✗ MTGO scrape failed (mtgo.com unreachable or page structure changed) — needs attention.");
+    process.exit(1); // fail the run so GitHub Actions emails the repo owner
+  }
   console.log("✓ Done.");
 }
 

@@ -22,7 +22,7 @@ export default async function Home() {
         </p>
         {lastRefresh && (
           <p className="text-xs text-neutral-500">
-            Auto-updates every ~6 hours · data last refreshed {timeAgo(lastRefresh)}.
+            Auto-updates every ~2 hours · data last refreshed {timeAgo(lastRefresh)}.
           </p>
         )}
         <div className="grid max-w-3xl gap-3 sm:grid-cols-2">
