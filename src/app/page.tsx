@@ -1,14 +1,14 @@
 import Link from "next/link";
-import { getFormatSummaries } from "@/lib/queries";
+import { getFormatSummaries, getLastRefresh } from "@/lib/queries";
 import { ColorPips } from "@/components/ColorPips";
 import { TrendBadge } from "@/components/TrendBadge";
 import { colorNameToId } from "@/lib/archetype/colors";
-import { fmtDate, pct } from "@/lib/ui";
+import { fmtDate, pct, timeAgo } from "@/lib/ui";
 
 export const dynamic = "force-dynamic";
 
 export default async function Home() {
-  const summaries = await getFormatSummaries();
+  const [summaries, lastRefresh] = await Promise.all([getFormatSummaries(), getLastRefresh()]);
 
   return (
     <div className="space-y-10">
@@ -20,6 +20,11 @@ export default async function Home() {
           Live metagame share, tournament decklists, and head-to-head matchup win rates computed from real pairing data
           across every competitive format.
         </p>
+        {lastRefresh && (
+          <p className="text-xs text-neutral-500">
+            Auto-updates every ~6 hours · data last refreshed {timeAgo(lastRefresh)}.
+          </p>
+        )}
         <div className="grid max-w-3xl gap-3 sm:grid-cols-2">
           <Note title="Aggregate win rate">
             A deck&apos;s overall match win&nbsp;% across all events — high volume, from MTGO and paper alike.
@@ -55,7 +60,7 @@ export default async function Home() {
             ) : (
               <p className="text-sm text-neutral-600">Run ingest to populate this format.</p>
             )}
-            <p className="mt-3 text-xs text-neutral-600">updated {fmtDate(s.latest)}</p>
+            <p className="mt-3 text-xs text-neutral-600">latest event {fmtDate(s.latest)}</p>
           </Link>
         ))}
       </section>

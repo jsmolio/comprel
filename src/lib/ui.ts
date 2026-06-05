@@ -30,6 +30,18 @@ export function fmtDate(d: Date | string | null | undefined): string {
   return dt.toISOString().slice(0, 10);
 }
 
+/** Coarse "x ago" for a timestamp (used for the data-refresh indicator). */
+export function timeAgo(d: Date | string | null | undefined): string {
+  if (!d) return "—";
+  const dt = typeof d === "string" ? new Date(d) : d;
+  const mins = Math.max(0, Math.round((Date.now() - dt.getTime()) / 60000));
+  if (mins < 2) return "just now";
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.round(mins / 60);
+  if (hours < 24) return `${hours}h ago`;
+  return `${Math.round(hours / 24)}d ago`;
+}
+
 /** Coarse card category from a Scryfall type line, for grouping decklists. */
 export function cardCategory(typeLine: string | null | undefined): string {
   const t = typeLine ?? "";

@@ -248,6 +248,12 @@ export async function getFormatSummaries(): Promise<FormatSummary[]> {
   );
 }
 
+/** When the stats were last recomputed — i.e. when the site's data last refreshed. */
+export async function getLastRefresh(): Promise<Date | null> {
+  const row = await prisma.archetypeStat.findFirst({ orderBy: { updatedAt: "desc" }, select: { updatedAt: true } });
+  return row?.updatedAt ?? null;
+}
+
 export interface MetaBreakdown {
   rows: ArchetypeRow[];
   totalDecks: number;
