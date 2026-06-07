@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="compREL color-wheel pentagram mark">
+  <!-- Option B — Color Wheel: the WUBRG pentagram (Magic's iconic color-relationship
+       star) with the five mana pips at its points. Emerald star lines. -->
+  <path d="M32 8 L46.11 51.42 L9.17 24.58 L54.83 24.58 L17.89 51.42 Z"
+        fill="none" stroke="#10b981" stroke-width="1.5" stroke-linejoin="round" opacity="0.6"/>
+  <g stroke="#0b0b0c" stroke-width="1">
+    <circle cx="32" cy="8" r="6" fill="#f4f4ec"/>
+    <circle cx="54.83" cy="24.58" r="6" fill="#2389d6"/>
+    <circle cx="46.11" cy="51.42" r="6" fill="#6f655c"/>
+    <circle cx="17.89" cy="51.42" r="6" fill="#e23b35"/>
+    <circle cx="9.17" cy="24.58" r="6" fill="#10b981"/>
+  </g>
+</svg>

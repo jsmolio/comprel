@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import Link from "next/link";
 import { Analytics } from "@vercel/analytics/next";
+import { BrandMark } from "@/components/BrandMark";
 import "./globals.css";
 
 const geistSans = Geist({ variable: "--font-geist-sans", subsets: ["latin"] });
@@ -19,9 +20,15 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
       <body className="flex min-h-full flex-col">
         <header className="sticky top-0 z-40 border-b border-neutral-800 bg-neutral-950/80 backdrop-blur">
           <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3">
-            <Link href="/" className="flex items-baseline gap-2">
-              <span className="text-lg font-bold tracking-tight text-emerald-400">compREL</span>
-              <span className="hidden text-xs text-neutral-500 sm:inline">competitive MTG metagame</span>
+            <Link href="/" className="flex items-center gap-2.5">
+              <BrandMark size={30} />
+              <span className="flex flex-col leading-tight">
+                <span className="text-lg font-extrabold tracking-tight">
+                  <span className="text-neutral-100">comp</span>
+                  <span className="text-emerald-400">REL</span>
+                </span>
+                <span className="hidden text-[11px] text-neutral-500 sm:block">competitive MTG metagame</span>
+              </span>
             </Link>
             <nav className="text-sm text-neutral-400">
               <a href="https://github.com/fbettega/MTG_decklistcache" className="hover:text-neutral-200" target="_blank" rel="noreferrer">

@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="compREL metagame-bars mark">
+  <!-- Option C — Metagame Bars: a share/standings bar chart drawn in the five mana
+       colors. Analytics-forward; the emerald baseline ties to the brand. -->
+  <rect x="6"  y="34" width="8" height="22" rx="3" fill="#f4f4ec"/>
+  <rect x="17" y="16" width="8" height="40" rx="3" fill="#2389d6"/>
+  <rect x="28" y="26" width="8" height="30" rx="3" fill="#6f655c"/>
+  <rect x="39" y="8"  width="8" height="48" rx="3" fill="#e23b35"/>
+  <rect x="50" y="22" width="8" height="34" rx="3" fill="#10b981"/>
+  <rect x="4" y="56" width="56" height="2.5" rx="1.25" fill="#10b981" opacity="0.55"/>
+</svg>

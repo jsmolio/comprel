@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="compREL color-pie mark">
+  <!-- Option A — Color Pie: the five mana colors as a donut, reading as both the
+       MTG color pie and a metagame-share chart. Green is the site's emerald. -->
+  <g stroke="#0b0b0c" stroke-width="1.5" stroke-linejoin="round">
+    <path d="M32 4 A28 28 0 0 1 58.63 23.35 L45.31 27.67 A14 14 0 0 0 32 18 Z" fill="#f4f4ec"/>
+    <path d="M58.63 23.35 A28 28 0 0 1 48.46 54.65 L40.23 43.33 A14 14 0 0 0 45.31 27.67 Z" fill="#2389d6"/>
+    <path d="M48.46 54.65 A28 28 0 0 1 15.54 54.65 L23.77 43.33 A14 14 0 0 0 40.23 43.33 Z" fill="#6f655c"/>
+    <path d="M15.54 54.65 A28 28 0 0 1 5.37 23.35 L18.69 27.67 A14 14 0 0 0 23.77 43.33 Z" fill="#e23b35"/>
+    <path d="M5.37 23.35 A28 28 0 0 1 32 4 L32 18 A14 14 0 0 0 18.69 27.67 Z" fill="#10b981"/>
+  </g>
+</svg>
