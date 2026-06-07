@@ -1,7 +1,7 @@
 import Link from "next/link";
 import type { ArchetypeRow } from "@/lib/queries";
 import { colorNameToId } from "@/lib/archetype/colors";
-import { conversionRate, pageQuery, pct, winrateColor } from "@/lib/ui";
+import { conversionRate, formatArchetype, pageQuery, pct, winrateColor } from "@/lib/ui";
 import { ColorPips } from "./ColorPips";
 import { TrendBadge } from "./TrendBadge";
 
@@ -67,7 +67,7 @@ export function MetaShareTable({
                 href={`/${formatSlug}/${r.slug}${pageQuery(windowDays, source)}`}
                 className="inline-flex items-center gap-2 font-medium text-neutral-100 hover:text-emerald-400"
               >
-                <span>{r.archetype}</span>
+                <span>{formatArchetype(r.archetype)}</span>
                 <ColorPips colorId={colorNameToId(r.colorName)} />
               </Link>
             </td>

@@ -13,7 +13,7 @@ import { youtubeEnabled } from "@/lib/sources/youtube";
 import { ColorPips } from "@/components/ColorPips";
 import { TrendBadge } from "@/components/TrendBadge";
 import { ShareChart } from "@/components/ShareChart";
-import { conversionRate, fmtDate, pageQuery, pct, winrateColor } from "@/lib/ui";
+import { conversionRate, fmtDate, formatArchetype, pageQuery, pct, winrateColor } from "@/lib/ui";
 import type { BoardCard } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -63,10 +63,10 @@ export default async function ArchetypePage({
             <Link href={`/${slug}${pageQuery(windowDays, source)}`} className="hover:text-neutral-300">
               {format}
             </Link>{" "}
-            / {detail.archetype}
+            / {formatArchetype(detail.archetype)}
           </nav>
           <h1 className="flex items-center gap-2 text-2xl font-bold tracking-tight">
-            {detail.archetype}
+            {formatArchetype(detail.archetype)}
             <ColorPips colorId={colorNameToId(detail.colorName)} size={16} />
           </h1>
         </div>

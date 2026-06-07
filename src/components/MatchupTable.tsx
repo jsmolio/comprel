@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import type { MatchupRow } from "@/lib/queries";
-import { pct, winrateColor } from "@/lib/ui";
+import { formatArchetype, pct, winrateColor } from "@/lib/ui";
 
 /** A 0–100% track with the win-rate marker and its 95% confidence band. */
 function ConfidenceBar({ p, low, high }: { p: number; low: number; high: number }) {
@@ -40,7 +40,9 @@ export function MatchupTable({ rows }: { rows: MatchupRow[]; formatSlug: string;
 
   const sorted = [...rows].sort((a, b) => {
     const cmp =
-      sort.key === "opponent" ? a.opponent.localeCompare(b.opponent) : (a[sort.key] as number) - (b[sort.key] as number);
+      sort.key === "opponent"
+        ? formatArchetype(a.opponent).localeCompare(formatArchetype(b.opponent))
+        : (a[sort.key] as number) - (b[sort.key] as number);
     return sort.dir === "asc" ? cmp : -cmp;
   });
 
@@ -77,7 +79,7 @@ export function MatchupTable({ rows }: { rows: MatchupRow[]; formatSlug: string;
       <tbody>
         {sorted.map((r) => (
           <tr key={r.opponent} className="border-b border-neutral-900">
-            <td className="py-2 pr-2 text-neutral-200">{r.opponent}</td>
+            <td className="py-2 pr-2 text-neutral-200">{formatArchetype(r.opponent)}</td>
             <td className="py-2 pr-2 text-right">
               <span
                 className="inline-block rounded px-1.5 py-0.5 text-xs font-semibold tabular-nums text-white"

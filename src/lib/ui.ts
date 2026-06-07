@@ -24,6 +24,17 @@ export function pageQuery(windowDays: number, source: string): string {
   return `?window=${windowDays}&source=${source}`;
 }
 
+/**
+ * Display name for an archetype. The upstream MTGOFormatData rules spell some
+ * archetypes in CamelCase ("GoryoReanimator", "AmuletTitan"); split those into
+ * words for display. Purely cosmetic — the raw name still drives slugs/lookups.
+ */
+export function formatArchetype(name: string): string {
+  return name
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2") // word→Word ("DomainZoo" → "Domain Zoo")
+    .replace(/([A-Z]+)([A-Z][a-z])/g, "$1 $2"); // ACRONYM→Word ("UWControl" → "UW Control")
+}
+
 export function fmtDate(d: Date | string | null | undefined): string {
   if (!d) return "—";
   const dt = typeof d === "string" ? new Date(d) : d;

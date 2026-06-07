@@ -1,7 +1,7 @@
 import Link from "next/link";
 import type { MatchupMatrix as Matrix } from "@/lib/queries";
 import { colorNameToId } from "@/lib/archetype/colors";
-import { pageQuery, pct, winrateColor } from "@/lib/ui";
+import { formatArchetype, pageQuery, pct, winrateColor } from "@/lib/ui";
 import { ColorPips } from "./ColorPips";
 
 const SMALL_SAMPLE = 8; // below this, fade the cell to signal low confidence
@@ -46,7 +46,7 @@ export function MatchupMatrix({
                   >
                     <span className="tabular-nums text-neutral-600">{i + 1}.</span>
                     <ColorPips colorId={colorNameToId(row.colorName)} size={11} />
-                    <span className="max-w-[12rem] truncate">{row.archetype}</span>
+                    <span className="max-w-[12rem] truncate">{formatArchetype(row.archetype)}</span>
                   </Link>
                 </th>
                 {archs.map((col, j) => {
@@ -64,7 +64,7 @@ export function MatchupMatrix({
                       key={j}
                       className="h-8 w-12 border border-neutral-900 text-center font-semibold tabular-nums"
                       style={{ background: winrateColor(c.winRateA, faded ? 0.3 : 0.92), color: faded ? "#9ca3af" : "#fff" }}
-                      title={`${row.archetype} vs ${col.archetype}: ${record} — ${pct(c.winRateA, 1)} (95% CI ${pct(c.ciLow)}–${pct(c.ciHigh)}, n=${c.matches})`}
+                      title={`${formatArchetype(row.archetype)} vs ${formatArchetype(col.archetype)}: ${record} — ${pct(c.winRateA, 1)} (95% CI ${pct(c.ciLow)}–${pct(c.ciHigh)}, n=${c.matches})`}
                     >
                       {pct(c.winRateA)}
                     </td>
