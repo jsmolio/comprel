@@ -1,8 +1,9 @@
 "use client";
 
+import Link from "next/link";
 import { useState } from "react";
 import type { MatchupRow } from "@/lib/queries";
-import { formatArchetype, pct, winrateColor } from "@/lib/ui";
+import { formatArchetype, pageQuery, pct, winrateColor } from "@/lib/ui";
 
 /** A 0–100% track with the win-rate marker and its 95% confidence band. */
 function ConfidenceBar({ p, low, high }: { p: number; low: number; high: number }) {
@@ -30,7 +31,17 @@ const COLUMNS: { key: SortKey; label: string; th: string; numeric: boolean }[] =
   { key: "ciLow", label: "95% CI", th: "py-2 pl-2", numeric: true },
 ];
 
-export function MatchupTable({ rows }: { rows: MatchupRow[]; formatSlug: string; windowDays: number }) {
+export function MatchupTable({
+  rows,
+  formatSlug,
+  windowDays,
+  source,
+}: {
+  rows: MatchupRow[];
+  formatSlug: string;
+  windowDays: number;
+  source: string;
+}) {
   // Default to the original order: sample size (n), descending.
   const [sort, setSort] = useState<{ key: SortKey; dir: "asc" | "desc" }>({ key: "matches", dir: "desc" });
 
@@ -79,7 +90,14 @@ export function MatchupTable({ rows }: { rows: MatchupRow[]; formatSlug: string;
       <tbody>
         {sorted.map((r) => (
           <tr key={r.opponent} className="border-b border-neutral-900">
-            <td className="py-2 pr-2 text-neutral-200">{formatArchetype(r.opponent)}</td>
+            <td className="py-2 pr-2">
+              <Link
+                href={`/${formatSlug}/${r.slug}${pageQuery(windowDays, source)}`}
+                className="text-neutral-200 hover:text-emerald-400 hover:underline"
+              >
+                {formatArchetype(r.opponent)}
+              </Link>
+            </td>
             <td className="py-2 pr-2 text-right">
               <span
                 className="inline-block rounded px-1.5 py-0.5 text-xs font-semibold tabular-nums text-white"

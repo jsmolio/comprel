@@ -123,7 +123,7 @@ export default async function ArchetypePage({
             Head-to-head win rate vs the rest of the {format} field, from pairing data. Wide intervals mean small samples.
           </p>
         </div>
-        <MatchupTable rows={detail.matchups} formatSlug={slug} windowDays={windowDays} />
+        <MatchupTable rows={detail.matchups} formatSlug={slug} windowDays={windowDays} source={source} />
       </section>
 
       <section className="space-y-4">
