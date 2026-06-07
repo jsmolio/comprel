@@ -170,30 +170,43 @@ export async function getArchetypeTimeline(
 export interface BanMarker {
   date: string; // YYYY-MM-DD
   label: string;
+  affectsFormat: boolean; // did THIS format's legal cards actually change on this date?
 }
 
 /**
- * B&R markers for a format's timeline: the curated historical list merged with
- * changes auto-detected from Scryfall (the BanEvent table). Same-day auto changes
- * collapse into one marker; a curated entry wins for a given date. Falls back to
- * curated-only if the BanEvent table hasn't been migrated yet.
+ * B&R markers for a format's timeline. A Banned & Restricted announcement reshapes
+ * the competitive landscape even when it doesn't touch this exact format, so we
+ * surface EVERY announcement date in the window — curated history plus
+ * auto-detected BanEvents, across all formats — and flag whether the viewed
+ * format itself changed. The chart draws format-affecting dates in amber and the
+ * rest in a muted tone. Falls back to curated-only if BanEvent isn't migrated yet.
  */
 export async function getBanMarkers(format: Format): Promise<BanMarker[]> {
-  const curated: BanMarker[] = BANS[format].map((b) => ({ date: b.date, label: b.label }));
-  let auto: BanMarker[] = [];
+  // date -> (format -> labels of what changed for that format that day)
+  const byDate = new Map<string, Map<Format, string[]>>();
+  const add = (date: string, f: Format, label: string) => {
+    if (!byDate.has(date)) byDate.set(date, new Map());
+    const perFmt = byDate.get(date)!;
+    perFmt.set(f, [...(perFmt.get(f) ?? []), label]);
+  };
+
+  for (const f of FORMATS) for (const b of BANS[f]) add(b.date, f, b.label);
+
   try {
-    const rows = await prisma.banEvent.findMany({ where: { format }, orderBy: { date: "asc" } });
-    const byDate = new Map<string, string[]>();
-    for (const r of rows) {
-      const d = r.date.toISOString().slice(0, 10);
-      byDate.set(d, [...(byDate.get(d) ?? []), `${r.card} ${r.action}`]);
-    }
-    auto = [...byDate.entries()].map(([date, parts]) => ({ date, label: parts.join(", ") }));
+    const rows = await prisma.banEvent.findMany({ orderBy: { date: "asc" } });
+    for (const r of rows) add(r.date.toISOString().slice(0, 10), r.format as Format, `${r.card} ${r.action}`);
   } catch {
-    // BanEvent table not present yet — show curated history only.
+    // BanEvent table not present yet — curated history still covers all dates.
   }
-  const seen = new Set(curated.map((c) => c.date));
-  return [...curated, ...auto.filter((a) => !seen.has(a.date))].sort((x, y) => x.date.localeCompare(y.date));
+
+  return [...byDate.entries()]
+    .map(([date, perFmt]) => {
+      const here = perFmt.get(format) ?? [];
+      const others = [...perFmt.keys()].filter((f) => f !== format);
+      const label = here.length > 0 ? here.join(", ") : `No ${format} changes — ${others.join(", ")} updated`;
+      return { date, label, affectsFormat: here.length > 0 };
+    })
+    .sort((a, b) => a.date.localeCompare(b.date));
 }
 
 function toRow(s: {
@@ -361,26 +374,33 @@ export async function getArchetypeDetail(
     where: { format_windowDays_source_archetype: { format, windowDays, source, archetype } },
   });
 
-  const [matchupRows, deckRows, convMap, prevMap, timeline] = await Promise.all([
+  // Pick the 5 decks to display up front (most recent first) so we only hydrate
+  // those heavy card-list rows — not 60 — which is the bulk of this page's cost.
+  // Older decks are slimmed to '[]' to bound storage, so filter to boarded here.
+  const [matchupRows, convMap, prevMap, timeline, boardedIds] = await Promise.all([
     prisma.matchupStat.findMany({
       where: { format, windowDays, source, archetypeA: archetype },
       orderBy: { matches: "desc" },
     }),
-    prisma.deck.findMany({
-      where: { format, archetype, ...sourceFilter(source) },
-      orderBy: { date: "desc" },
-      take: 60,
-      include: { tournament: true },
-    }),
     getConversionMap(format, windowDays, source),
     getPrevShareMap(format, windowDays, source),
     getArchetypeTimeline(format, archetype, source),
+    prisma.$queryRawUnsafe<{ id: string }[]>(
+      `SELECT d.id FROM "Deck" d JOIN "Tournament" t ON t.id = d."tournamentId"
+       WHERE d.format = $1 AND d.archetype = $2 AND d.mainboard <> '[]'::jsonb ${sourceSql(source)}
+       ORDER BY d.date DESC, (d.rank IS NULL), d.rank ASC
+       LIMIT 5`,
+      format,
+      archetype,
+    ),
   ]);
 
-  // Show only decks that still carry their card lists (older ones are slimmed to
-  // bound storage). Best finishes first among them, then most recent.
-  const boardedDecks = deckRows.filter((d) => Array.isArray(d.mainboard) && (d.mainboard as unknown[]).length > 0);
-  boardedDecks.sort((a, b) => (a.rank ?? 1e9) - (b.rank ?? 1e9) || b.date.getTime() - a.date.getTime());
+  const ids = boardedIds.map((r) => r.id);
+  const deckRows = ids.length
+    ? await prisma.deck.findMany({ where: { id: { in: ids } }, include: { tournament: true } })
+    : [];
+  const orderById = new Map(ids.map((id, i) => [id, i]));
+  deckRows.sort((a, b) => (orderById.get(a.id) ?? 0) - (orderById.get(b.id) ?? 0));
 
   return {
     format,
@@ -399,7 +419,7 @@ export async function getArchetypeDetail(
       ciLow: m.ciLow,
       ciHigh: m.ciHigh,
     })),
-    decks: boardedDecks.slice(0, 5).map((d) => ({
+    decks: deckRows.map((d) => ({
       id: d.id,
       player: d.player,
       result: d.result,

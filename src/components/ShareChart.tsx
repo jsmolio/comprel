@@ -92,14 +92,26 @@ export function ShareChart({ points, format, bans }: { points: TimelinePoint[]; 
           </g>
         ))}
 
-        {marks.map((b, i) => (
-          <g key={`b${i}`}>
-            <line x1={X(b.t)} x2={X(b.t)} y1={padT} y2={padT + innerH} stroke="#f59e0b" strokeWidth={1} strokeDasharray="3 3" opacity={0.75} />
-            <circle cx={X(b.t)} cy={padT} r={3} fill="#f59e0b">
-              <title>{`B&R ${b.date} — ${b.label}`}</title>
-            </circle>
-          </g>
-        ))}
+        {marks.map((b, i) => {
+          const color = b.affectsFormat ? "#f59e0b" : "#94a3b8"; // amber if this format changed, else muted slate
+          return (
+            <g key={`b${i}`}>
+              <line
+                x1={X(b.t)}
+                x2={X(b.t)}
+                y1={padT}
+                y2={padT + innerH}
+                stroke={color}
+                strokeWidth={1}
+                strokeDasharray="3 3"
+                opacity={b.affectsFormat ? 0.8 : 0.45}
+              />
+              <circle cx={X(b.t)} cy={padT} r={3} fill={color} opacity={b.affectsFormat ? 1 : 0.7}>
+                <title>{`B&R ${b.date} — ${b.label}`}</title>
+              </circle>
+            </g>
+          );
+        })}
 
         <path d={areaPath} fill="rgba(16,185,129,0.14)" />
         <path d={linePath} fill="none" stroke="#10b981" strokeWidth={1.75} strokeLinejoin="round" />
@@ -125,8 +137,18 @@ export function ShareChart({ points, format, bans }: { points: TimelinePoint[]; 
       </svg>
 
       {marks.length > 0 && (
-        <figcaption className="mt-1 flex items-center gap-1.5 text-xs text-neutral-500">
-          <span className="inline-block h-2 w-2 rounded-full bg-amber-500" aria-hidden /> dashed lines mark B&amp;R announcements affecting {format} (hover for details)
+        <figcaption className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-neutral-500">
+          {marks.some((b) => b.affectsFormat) && (
+            <span className="inline-flex items-center gap-1.5">
+              <span className="inline-block h-2 w-2 rounded-full" style={{ background: "#f59e0b" }} aria-hidden /> B&amp;R affecting {format}
+            </span>
+          )}
+          {marks.some((b) => !b.affectsFormat) && (
+            <span className="inline-flex items-center gap-1.5">
+              <span className="inline-block h-2 w-2 rounded-full" style={{ background: "#94a3b8" }} aria-hidden /> other-format B&amp;R
+            </span>
+          )}
+          <span>· hover any line for details</span>
         </figcaption>
       )}
     </figure>

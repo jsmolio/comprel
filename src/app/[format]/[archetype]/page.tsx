@@ -8,6 +8,8 @@ import { WindowToggle } from "@/components/WindowToggle";
 import { SourceToggle } from "@/components/SourceToggle";
 import { MatchupTable } from "@/components/MatchupTable";
 import { DeckList, type CardMap } from "@/components/DeckList";
+import { CollapsibleDecks } from "@/components/CollapsibleDecks";
+import { SignatureCards } from "@/components/SignatureCards";
 import { VideoSection } from "@/components/VideoSection";
 import { youtubeEnabled } from "@/lib/sources/youtube";
 import { ColorPips } from "@/components/ColorPips";
@@ -49,9 +51,46 @@ export default async function ArchetypePage({
   ]);
   const cards = cardMap as unknown as CardMap;
 
+  // The 3 cards that best represent the deck: the most widely-played nonland,
+  // non-basic cards across the shown lists (spells/creatures define an archetype
+  // more than its lands), each ranked by how many lists run it and in what counts.
+  const signature = pickSignatureCards(detail.decks, cards);
+
   const stat = detail.stat;
   const top8 = conversionRate(stat?.conversion?.top8, stat?.conversion?.elig8);
   const top32 = conversionRate(stat?.conversion?.top32, stat?.conversion?.elig32);
+
+  // Decks come back most-recent first; render each as an article so the section
+  // can show the latest list and collapse the rest behind a toggle.
+  const deckArticles = detail.decks.map((d) => (
+    <article key={d.id} className="rounded-xl border border-neutral-800 bg-neutral-900/40 p-4">
+      <header className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
+        <div className="flex items-baseline gap-2">
+          <span className="font-semibold text-neutral-100">{d.player}</span>
+          <Finish rank={d.rank} result={d.result} />
+        </div>
+        <div className="text-xs text-neutral-500">
+          {d.tournamentUri ? (
+            <a href={d.tournamentUri} target="_blank" rel="noreferrer" className="hover:text-neutral-300">
+              {d.tournamentName}
+            </a>
+          ) : (
+            d.tournamentName
+          )}{" "}
+          · {fmtDate(d.tournamentDate)} · {d.source}
+          {d.anchorUri && (
+            <>
+              {" · "}
+              <a href={d.anchorUri} target="_blank" rel="noreferrer" className="text-emerald-500 hover:text-emerald-400">
+                full list ↗
+              </a>
+            </>
+          )}
+        </div>
+      </header>
+      <DeckList mainboard={d.mainboard as BoardCard[]} sideboard={d.sideboard as BoardCard[]} cardMap={cards} />
+    </article>
+  ));
 
   return (
     <div className="space-y-8">
@@ -75,6 +114,12 @@ export default async function ArchetypePage({
           <WindowToggle basePath={`/${slug}/${archetypeSlug}`} windowDays={windowDays} source={source} />
         </div>
       </div>
+
+      {signature.length > 0 && (
+        <section aria-label="Signature cards">
+          <SignatureCards cards={signature} />
+        </section>
+      )}
 
       {stat && (
         <section className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
@@ -129,42 +174,14 @@ export default async function ArchetypePage({
       <section className="space-y-4">
         <div>
           <h2 className="text-lg font-semibold">Representative decklists</h2>
-          <p className="text-sm text-neutral-500">Recent strong finishes for this archetype. Hover any card for a preview.</p>
+          <p className="text-sm text-neutral-500">
+            The most recent strong finish for this archetype, with older lists one click away. Hover any card for a preview.
+          </p>
         </div>
         {detail.decks.length === 0 ? (
           <p className="text-sm text-neutral-500">No decklists found in the cache for this archetype.</p>
         ) : (
-          <div className="space-y-4">
-            {detail.decks.map((d) => (
-              <article key={d.id} className="rounded-xl border border-neutral-800 bg-neutral-900/40 p-4">
-                <header className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
-                  <div className="flex items-baseline gap-2">
-                    <span className="font-semibold text-neutral-100">{d.player}</span>
-                    <Finish rank={d.rank} result={d.result} />
-                  </div>
-                  <div className="text-xs text-neutral-500">
-                    {d.tournamentUri ? (
-                      <a href={d.tournamentUri} target="_blank" rel="noreferrer" className="hover:text-neutral-300">
-                        {d.tournamentName}
-                      </a>
-                    ) : (
-                      d.tournamentName
-                    )}{" "}
-                    · {fmtDate(d.tournamentDate)} · {d.source}
-                    {d.anchorUri && (
-                      <>
-                        {" · "}
-                        <a href={d.anchorUri} target="_blank" rel="noreferrer" className="text-emerald-500 hover:text-emerald-400">
-                          full list ↗
-                        </a>
-                      </>
-                    )}
-                  </div>
-                </header>
-                <DeckList mainboard={d.mainboard as BoardCard[]} sideboard={d.sideboard as BoardCard[]} cardMap={cards} />
-              </article>
-            ))}
-          </div>
+          <CollapsibleDecks first={deckArticles[0]} rest={deckArticles.slice(1)} restCount={deckArticles.length - 1} />
         )}
       </section>
 
@@ -211,4 +228,45 @@ function Finish({ rank, result }: { rank: number | null; result: string | null }
   const label = rank ? `#${rank}` : result ?? "";
   if (!label) return null;
   return <span className="rounded bg-neutral-800 px-1.5 py-0.5 text-xs font-medium text-neutral-300">{label}</span>;
+}
+
+const BASIC_LANDS = new Set([
+  "Plains", "Island", "Swamp", "Mountain", "Forest", "Wastes",
+  "Snow-Covered Plains", "Snow-Covered Island", "Snow-Covered Swamp", "Snow-Covered Mountain", "Snow-Covered Forest",
+]);
+
+/**
+ * The 3 cards that best represent an archetype: the most widely-played nonland,
+ * non-basic cards across the shown lists (a deck's payoffs identify it better than
+ * its lands), ranked by how many lists run the card and in what quantities. Only
+ * cards we have a Scryfall image for are eligible.
+ */
+function pickSignatureCards(decks: { mainboard: BoardCard[] }[], cards: CardMap): { name: string; imageUrl: string }[] {
+  const tally = new Map<string, { name: string; decks: number; copies: number }>();
+  for (const d of decks) {
+    const seen = new Set<string>();
+    for (const c of d.mainboard) {
+      if (BASIC_LANDS.has(c.name)) continue;
+      const t = tally.get(c.name) ?? { name: c.name, decks: 0, copies: 0 };
+      if (!seen.has(c.name)) {
+        t.decks += 1;
+        seen.add(c.name);
+      }
+      t.copies += c.count;
+      tally.set(c.name, t);
+    }
+  }
+  const isLand = (name: string) => (cards.get(name)?.typeLine ?? "").includes("Land");
+  return [...tally.values()]
+    .map((t) => ({ ...t, imageUrl: cards.get(t.name)?.imageUrl ?? null, land: isLand(t.name) }))
+    .filter((t): t is typeof t & { imageUrl: string } => Boolean(t.imageUrl))
+    .sort(
+      (a, b) =>
+        Number(a.land) - Number(b.land) || // payoffs (nonlands) first
+        b.decks - a.decks || // then ubiquity across lists
+        b.copies - a.copies || // then total copies
+        a.name.localeCompare(b.name),
+    )
+    .slice(0, 3)
+    .map((t) => ({ name: t.name, imageUrl: t.imageUrl }));
 }
