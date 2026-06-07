@@ -52,8 +52,9 @@ async function main() {
       const mtgo = await importMtgo({ days: 4, log: (m) => console.log(m) });
       console.log("  mtgo:", JSON.stringify(mtgo));
       newTournaments += mtgo.events;
-      // "Broken" = listing unreachable, or events found but none parsed (page structure changed).
-      mtgoBroken = !mtgo.indexOk || (mtgo.found > 0 && mtgo.events === 0);
+      // Only a real, actionable break (listing 404 / page-structure change) fails the run.
+      // Transient network/5xx blips self-heal next cycle, so they don't alert.
+      mtgoBroken = mtgo.structuralFailure;
     }
   }
 

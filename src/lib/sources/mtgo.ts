@@ -12,6 +12,26 @@ const INDEX_URL = "https://www.mtgo.com/decklists";
 const EVENT_URL = "https://www.mtgo.com/decklist/";
 const UA = { "User-Agent": "Mozilla/5.0 (compatible; comprel/1.0)" };
 
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * Fetch with retries on network errors and transient (5xx/429) responses. Returns
+ * the Response — even a final non-ok one, so the caller can distinguish a 404 — or
+ * null if every attempt threw at the network level.
+ */
+async function tryFetch(url: string, attempts = 3): Promise<Response | null> {
+  for (let a = 0; a < attempts; a++) {
+    try {
+      const res = await fetch(url, { headers: UA });
+      if (res.ok || res.status === 404 || a === attempts - 1) return res;
+    } catch {
+      if (a === attempts - 1) return null;
+    }
+    await sleep(700 * (a + 1));
+  }
+  return null;
+}
+
 // Leading slug token -> tracked format. Others (premodern, contraption, …) are skipped.
 const FORMAT_PREFIX: Record<string, Format> = {
   standard: "Standard",
@@ -138,6 +158,10 @@ export interface MtgoImportResult {
   events: number;
   decks: number;
   errors: number;
+  // True only for a real, actionable break (listing 404 = URL moved, or events found
+  // but none parseable = page structure changed). Transient network/5xx blips are NOT
+  // structural failures — they self-heal next run, so they shouldn't alert.
+  structuralFailure: boolean;
 }
 
 /** Scrape recent MTGO events (last `days`) for the tracked formats, straight from mtgo.com. */
@@ -147,18 +171,21 @@ export async function importMtgo(
   const days = opts.days ?? 4;
   const log = opts.log ?? (() => {});
   const allow = new Set<Format>(FORMATS);
-  const result: MtgoImportResult = { indexOk: false, found: 0, events: 0, decks: 0, errors: 0 };
+  const result: MtgoImportResult = { indexOk: false, found: 0, events: 0, decks: 0, errors: 0, structuralFailure: false };
 
-  let indexHtml: string;
-  try {
-    const res = await fetch(INDEX_URL, { headers: UA });
-    if (!res.ok) throw new Error(`index HTTP ${res.status}`);
-    indexHtml = await res.text();
-    result.indexOk = true;
-  } catch (e) {
-    log(`  ! MTGO index fetch failed: ${(e as Error).message}`);
-    return result; // indexOk=false → caller treats the scrape as failed
+  const idxRes = await tryFetch(INDEX_URL);
+  if (!idxRes || !idxRes.ok) {
+    const is404 = idxRes?.status === 404;
+    result.structuralFailure = is404; // 404 = listing URL moved (actionable); transient/5xx = not
+    log(
+      is404
+        ? "  ! MTGO listing returned 404 — the decklists URL changed; needs a code fix"
+        : `  ! MTGO listing unreachable (${idxRes ? `HTTP ${idxRes.status}` : "network error"}) — transient, skipping this cycle`,
+    );
+    return result;
   }
+  const indexHtml = await idxRes.text();
+  result.indexOk = true;
 
   const slugs = [...new Set([...indexHtml.matchAll(/\/decklist\/([a-z0-9-]+)/gi)].map((m) => m[1].toLowerCase()))];
   const cutoff = Date.now() - days * 86_400_000;
@@ -172,8 +199,8 @@ export async function importMtgo(
 
   for (const slug of wanted) {
     try {
-      const res = await fetch(`${EVENT_URL}${slug}`, { headers: UA });
-      if (!res.ok) {
+      const res = await tryFetch(`${EVENT_URL}${slug}`, 2);
+      if (!res || !res.ok) {
         result.errors++;
         continue;
       }
@@ -202,6 +229,8 @@ export async function importMtgo(
     }
     await new Promise((r) => setTimeout(r, 60)); // be polite to mtgo.com
   }
+  // Found events on the listing but parsed none → the event-page structure changed.
+  if (result.found > 0 && result.events === 0) result.structuralFailure = true;
   log(`  MTGO: imported ${result.events} events, ${result.decks} decks (${result.errors} errors)`);
   return result;
 }
