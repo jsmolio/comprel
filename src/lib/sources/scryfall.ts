@@ -1,5 +1,4 @@
 import { prisma } from "../db";
-import type { BoardCard } from "../types";
 
 // Enriches cards from Scryfall's official, keyless API. We use the bulk
 // collection endpoint (75 names/request) and only fetch cards we don't already
@@ -126,12 +125,14 @@ export async function enrichCards(names: string[], log: (m: string) => void = ()
 
 /** Collect every distinct card name across stored decks and enrich the new ones. */
 export async function enrichCardsFromDb(log: (m: string) => void = () => {}): Promise<number> {
-  const decks = await prisma.deck.findMany({ select: { mainboard: true, sideboard: true } });
-  const names = new Set<string>();
-  for (const d of decks) {
-    for (const c of (d.mainboard as unknown as BoardCard[]) ?? []) names.add(c.name);
-    for (const c of (d.sideboard as unknown as BoardCard[]) ?? []) names.add(c.name);
-  }
-  log(`  ${names.size} distinct cards referenced`);
-  return enrichCards([...names], log);
+  // Distinct names are extracted INSIDE Postgres — shipping every deck's JSONB
+  // boards to Node (with no WHERE at all) was one of the most expensive queries
+  // on the instance and needless egress. Only boarded decks even have names.
+  const rows = await prisma.$queryRaw<{ name: string | null }[]>`
+    SELECT DISTINCT c->>'name' AS name
+    FROM "Deck" d, LATERAL jsonb_array_elements(d.mainboard || d.sideboard) AS c
+    WHERE d.mainboard <> '[]'::jsonb OR d.sideboard <> '[]'::jsonb`;
+  const names = rows.map((r) => r.name).filter((n): n is string => Boolean(n));
+  log(`  ${names.length} distinct cards referenced`);
+  return enrichCards(names, log);
 }

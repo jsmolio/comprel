@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { Prisma } from "@prisma/client";
 import { prisma } from "../db";
 import { FORMATS, SOURCE_GROUP_MEMBERS, WINDOW_CHOICES, type Format, type SourceFilter } from "../types";
@@ -203,6 +204,91 @@ function statsForWindow(
   return { totalDecks, archStats, matchupStats };
 }
 
+// Persist stats as a DIFF against the existing rows rather than delete-all +
+// recreate. Most cells are unchanged between runs (the long windows barely move
+// every 2h), and a full rewrite of ~100k rows per run churned enough WAL and
+// index pages to exhaust the free-tier disk-IO budget and bloat the tables.
+// ON CONFLICT ... WHERE row IS DISTINCT FROM excluded makes unchanged rows
+// zero-cost; the trailing DELETE drops archetypes that left the window.
+
+type ArchStatRow = ReturnType<typeof statsForWindow>["archStats"][number];
+type MatchupStatRow = ReturnType<typeof statsForWindow>["matchupStats"][number];
+
+async function upsertArchStats(format: Format, windowDays: number, source: SourceFilter, stats: ArchStatRow[]) {
+  if (stats.length === 0) {
+    await prisma.archetypeStat.deleteMany({ where: { format, windowDays, source } });
+    return;
+  }
+  const archetypes = stats.map((s) => s.archetype);
+  await prisma.$transaction([
+    prisma.$executeRaw(Prisma.sql`
+      INSERT INTO "ArchetypeStat"
+        ("id","format","windowDays","source","archetype","colorName","deckCount","metaShare","matchWins","matchLosses","matchDraws","winRate")
+      SELECT t.id, ${format}, ${windowDays}, ${source},
+             t.archetype, t."colorName", t."deckCount", t."metaShare",
+             t."matchWins", t."matchLosses", t."matchDraws", t."winRate"
+      FROM unnest(
+        ${stats.map(() => randomUUID())}::text[], ${archetypes}::text[], ${stats.map((s) => s.colorName)}::text[],
+        ${stats.map((s) => s.deckCount)}::int[], ${stats.map((s) => s.metaShare)}::float8[],
+        ${stats.map((s) => s.matchWins)}::int[], ${stats.map((s) => s.matchLosses)}::int[],
+        ${stats.map((s) => s.matchDraws)}::int[], ${stats.map((s) => s.winRate)}::float8[]
+      ) AS t(id, archetype, "colorName", "deckCount", "metaShare", "matchWins", "matchLosses", "matchDraws", "winRate")
+      ON CONFLICT ("format","windowDays","source","archetype") DO UPDATE SET
+        "colorName" = EXCLUDED."colorName", "deckCount" = EXCLUDED."deckCount", "metaShare" = EXCLUDED."metaShare",
+        "matchWins" = EXCLUDED."matchWins", "matchLosses" = EXCLUDED."matchLosses", "matchDraws" = EXCLUDED."matchDraws",
+        "winRate" = EXCLUDED."winRate", "updatedAt" = now()
+      WHERE ("ArchetypeStat"."colorName", "ArchetypeStat"."deckCount", "ArchetypeStat"."metaShare",
+             "ArchetypeStat"."matchWins", "ArchetypeStat"."matchLosses", "ArchetypeStat"."matchDraws",
+             "ArchetypeStat"."winRate")
+        IS DISTINCT FROM
+            (EXCLUDED."colorName", EXCLUDED."deckCount", EXCLUDED."metaShare",
+             EXCLUDED."matchWins", EXCLUDED."matchLosses", EXCLUDED."matchDraws", EXCLUDED."winRate")`),
+    prisma.$executeRaw(Prisma.sql`
+      DELETE FROM "ArchetypeStat"
+      WHERE "format" = ${format} AND "windowDays" = ${windowDays} AND "source" = ${source}
+        AND "archetype" <> ALL(${archetypes}::text[])`),
+  ]);
+}
+
+async function upsertMatchupStats(format: Format, windowDays: number, source: SourceFilter, stats: MatchupStatRow[]) {
+  if (stats.length === 0) {
+    await prisma.matchupStat.deleteMany({ where: { format, windowDays, source } });
+    return;
+  }
+  const as = stats.map((s) => s.archetypeA);
+  const bs = stats.map((s) => s.archetypeB);
+  await prisma.$transaction([
+    prisma.$executeRaw(Prisma.sql`
+      INSERT INTO "MatchupStat"
+        ("id","format","windowDays","source","archetypeA","archetypeB","matches","winsA","winsB","draws","winRateA","ciLow","ciHigh")
+      SELECT t.id, ${format}, ${windowDays}, ${source},
+             t."archetypeA", t."archetypeB", t.matches, t."winsA", t."winsB", t.draws,
+             t."winRateA", t."ciLow", t."ciHigh"
+      FROM unnest(
+        ${stats.map(() => randomUUID())}::text[], ${as}::text[], ${bs}::text[],
+        ${stats.map((s) => s.matches)}::int[], ${stats.map((s) => s.winsA)}::int[],
+        ${stats.map((s) => s.winsB)}::int[], ${stats.map((s) => s.draws)}::int[],
+        ${stats.map((s) => s.winRateA)}::float8[], ${stats.map((s) => s.ciLow)}::float8[],
+        ${stats.map((s) => s.ciHigh)}::float8[]
+      ) AS t(id, "archetypeA", "archetypeB", matches, "winsA", "winsB", draws, "winRateA", "ciLow", "ciHigh")
+      ON CONFLICT ("format","windowDays","source","archetypeA","archetypeB") DO UPDATE SET
+        "matches" = EXCLUDED."matches", "winsA" = EXCLUDED."winsA", "winsB" = EXCLUDED."winsB",
+        "draws" = EXCLUDED."draws", "winRateA" = EXCLUDED."winRateA",
+        "ciLow" = EXCLUDED."ciLow", "ciHigh" = EXCLUDED."ciHigh", "updatedAt" = now()
+      WHERE ("MatchupStat"."matches", "MatchupStat"."winsA", "MatchupStat"."winsB", "MatchupStat"."draws",
+             "MatchupStat"."winRateA", "MatchupStat"."ciLow", "MatchupStat"."ciHigh")
+        IS DISTINCT FROM
+            (EXCLUDED."matches", EXCLUDED."winsA", EXCLUDED."winsB", EXCLUDED."draws",
+             EXCLUDED."winRateA", EXCLUDED."ciLow", EXCLUDED."ciHigh")`),
+    prisma.$executeRaw(Prisma.sql`
+      DELETE FROM "MatchupStat" m
+      WHERE m."format" = ${format} AND m."windowDays" = ${windowDays} AND m."source" = ${source}
+        AND NOT EXISTS (
+          SELECT 1 FROM unnest(${as}::text[], ${bs}::text[]) AS t(a, b)
+          WHERE t.a = m."archetypeA" AND t.b = m."archetypeB")`),
+  ]);
+}
+
 export async function computeAllAggregates(log: (m: string) => void = () => {}) {
   for (const format of FORMATS) {
     const anchor = await anchorDateForFormat(format);
@@ -220,12 +306,8 @@ export async function computeAllAggregates(log: (m: string) => void = () => {}) 
         const windowDays = WINDOW_CHOICES[i];
         const { totalDecks, archStats, matchupStats } = statsForWindow(format, windowDays, i, group, deckRows, pairRows);
         decksByWindow[group.key][i] = totalDecks;
-        await prisma.$transaction([
-          prisma.archetypeStat.deleteMany({ where: { format, windowDays, source: group.key } }),
-          prisma.archetypeStat.createMany({ data: archStats }),
-          prisma.matchupStat.deleteMany({ where: { format, windowDays, source: group.key } }),
-          prisma.matchupStat.createMany({ data: matchupStats }),
-        ]);
+        await upsertArchStats(format, windowDays, group.key, archStats);
+        await upsertMatchupStats(format, windowDays, group.key, matchupStats);
       }
     }
     WINDOW_CHOICES.forEach((windowDays, i) => {
