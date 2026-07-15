@@ -45,8 +45,11 @@ function ghHeaders(): Record<string, string> {
   return h;
 }
 
+// Bound every upstream fetch so one hung connection can't stall the ingest run.
+const FETCH_TIMEOUT_MS = 30_000;
+
 async function ghJson<T>(url: string): Promise<T> {
-  const res = await fetch(url, { headers: ghHeaders() });
+  const res = await fetch(url, { headers: ghHeaders(), signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
   if (!res.ok) {
     const body = await res.text();
     throw new Error(`GitHub ${res.status} for ${url}: ${body.slice(0, 200)}`);
@@ -264,7 +267,10 @@ export async function importMtgoCache(opts: ImportOptions = {}): Promise<ImportS
       }
       summary.files++;
       try {
-        const res = await fetch(f.rawUrl, { headers: { "User-Agent": "comprel-ingest" } });
+        const res = await fetch(f.rawUrl, {
+          headers: { "User-Agent": "comprel-ingest" },
+          signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+        });
         if (!res.ok) {
           log(`    ! fetch ${res.status}: ${f.fullPath}`);
           continue;

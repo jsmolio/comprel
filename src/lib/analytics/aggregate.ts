@@ -1,3 +1,4 @@
+import { Prisma } from "@prisma/client";
 import { prisma } from "../db";
 import { FORMATS, SOURCE_GROUP_MEMBERS, WINDOW_CHOICES, type Format, type SourceFilter } from "../types";
 
@@ -45,43 +46,79 @@ export async function anchorDateForFormat(format: Format): Promise<Date | null> 
   return rows[rows.length - 1].date;
 }
 
-async function computeForWindow(
+// Both aggregation queries group INSIDE Postgres and return one small row set
+// covering every window at once (via `FILTER (WHERE date >= cutoff)` columns),
+// instead of shipping every deck/match row to Node per window. This keeps
+// egress to a few KB per format — critical on Supabase's metered free tier.
+
+type DeckCountRow = { archetype: string; colorName: string | null } & Record<`c${number}`, number>;
+type PairRow = { a1: string; a2: string } & Record<`wa${number}` | `wb${number}` | `dr${number}`, number>;
+
+async function fetchGroupRows(format: Format, cutoffs: Date[], sources?: string[]) {
+  const maxCutoff = cutoffs[cutoffs.length - 1];
+
+  const deckCountCols = cutoffs.map(
+    (c, i) => Prisma.sql`count(*) FILTER (WHERE d.date >= ${c})::int AS ${Prisma.raw(`c${i}`)}`,
+  );
+  const deckSourceJoin = sources
+    ? Prisma.sql`JOIN "Tournament" t ON t.id = d."tournamentId" AND t.source IN (${Prisma.join(sources)})`
+    : Prisma.empty;
+  const deckRows = await prisma.$queryRaw<DeckCountRow[]>(Prisma.sql`
+    SELECT COALESCE(d.archetype, 'Unknown') AS archetype,
+           mode() WITHIN GROUP (ORDER BY d."colorName") AS "colorName",
+           ${Prisma.join(deckCountCols)}
+    FROM "Deck" d
+    ${deckSourceJoin}
+    WHERE d.format = ${format} AND d.date >= ${maxCutoff}
+    GROUP BY 1`);
+
+  const pairCols = cutoffs.flatMap((c, i) => [
+    Prisma.sql`count(*) FILTER (WHERE m.winner = 1 AND m.date >= ${c})::int AS ${Prisma.raw(`wa${i}`)}`,
+    Prisma.sql`count(*) FILTER (WHERE m.winner = 2 AND m.date >= ${c})::int AS ${Prisma.raw(`wb${i}`)}`,
+    Prisma.sql`count(*) FILTER (WHERE m.winner <> 1 AND m.winner <> 2 AND m.date >= ${c})::int AS ${Prisma.raw(`dr${i}`)}`,
+  ]);
+  const matchSourceJoin = sources
+    ? Prisma.sql`JOIN "Tournament" t ON t.id = m."tournamentId" AND t.source IN (${Prisma.join(sources)})`
+    : Prisma.empty;
+  // A player runs one deck per event, so archetype resolution is scoped to the
+  // tournament (DISTINCT ON guards against duplicate deck rows).
+  const pairRows = await prisma.$queryRaw<PairRow[]>(Prisma.sql`
+    WITH dk AS (
+      SELECT DISTINCT ON ("tournamentId", player) "tournamentId", player, archetype
+      FROM "Deck"
+      WHERE format = ${format} AND date >= ${maxCutoff} AND archetype IS NOT NULL
+      ORDER BY "tournamentId", player, date DESC, id
+    )
+    SELECT d1.archetype AS a1, d2.archetype AS a2, ${Prisma.join(pairCols)}
+    FROM "Match" m
+    JOIN dk d1 ON d1."tournamentId" = m."tournamentId" AND d1.player = m.player1
+    JOIN dk d2 ON d2."tournamentId" = m."tournamentId" AND d2.player = m.player2
+    ${matchSourceJoin}
+    WHERE m.format = ${format} AND m.date >= ${maxCutoff} AND d1.archetype <> d2.archetype
+    GROUP BY 1, 2`);
+
+  return { deckRows, pairRows };
+}
+
+function statsForWindow(
   format: Format,
   windowDays: number,
-  anchor: Date,
+  windowIdx: number,
   group: { key: SourceFilter; sources?: string[] },
+  deckRows: DeckCountRow[],
+  pairRows: PairRow[],
 ) {
-  const cutoff = new Date(anchor.getTime() - windowDays * 86_400_000);
-  const sourceWhere = group.sources ? { tournament: { source: { in: group.sources } } } : {};
-
-  const decks = await prisma.deck.findMany({
-    where: { format, date: { gte: cutoff }, ...sourceWhere },
-    select: { tournamentId: true, player: true, archetype: true, colorName: true },
-  });
-
-  // ---- Metagame share (every deck counts, including 5-0 league dumps) ----
   const byArch = new Map<string, { count: number; colorName: string | null }>();
-  for (const dk of decks) {
-    const key = dk.archetype ?? "Unknown";
-    const e = byArch.get(key) ?? { count: 0, colorName: dk.colorName };
-    e.count++;
-    byArch.set(key, e);
+  for (const r of deckRows) {
+    const count = r[`c${windowIdx}`];
+    if (count > 0) byArch.set(r.archetype, { count, colorName: r.colorName });
   }
-  const totalDecks = decks.length;
+  const totalDecks = [...byArch.values()].reduce((n, e) => n + e.count, 0);
 
   const relevant = new Set([...byArch.entries()].filter(([, e]) => e.count >= MIN_DECKS_FOR_MATRIX).map(([a]) => a));
 
-  // player -> archetype, scoped per tournament (a player runs one deck per event).
-  const archOf = new Map<string, string>();
-  for (const dk of decks) if (dk.archetype) archOf.set(`${dk.tournamentId}::${dk.player}`, dk.archetype);
-
-  const matches = await prisma.match.findMany({
-    where: { format, date: { gte: cutoff }, ...sourceWhere },
-    select: { tournamentId: true, player1: true, player2: true, winner: true },
-  });
-
-  // Aggregate win rate is derived from PAIRINGS, not stored deck records, so MTGO
-  // 5-0 league selection bias does not inflate it.
+  // Aggregate win rate is derived from PAIRINGS (mirrors excluded), not stored
+  // deck records, so MTGO 5-0 league selection bias does not inflate it.
   type Rec = { w: number; l: number; d: number };
   const archRecord = new Map<string, Rec>();
   const rec = (a: string) => {
@@ -99,37 +136,30 @@ async function computeForWindow(
     return c;
   };
 
-  for (const m of matches) {
-    const a1 = archOf.get(`${m.tournamentId}::${m.player1}`);
-    const a2 = archOf.get(`${m.tournamentId}::${m.player2}`);
-    if (!a1 || !a2 || a1 === a2) continue; // need both known; skip mirrors
+  for (const p of pairRows) {
+    const wa = p[`wa${windowIdx}`];
+    const wb = p[`wb${windowIdx}`];
+    const dr = p[`dr${windowIdx}`];
+    if (wa + wb + dr === 0) continue;
 
-    const r1 = rec(a1);
-    const r2 = rec(a2);
-    if (m.winner === 1) {
-      r1.w++;
-      r2.l++;
-    } else if (m.winner === 2) {
-      r1.l++;
-      r2.w++;
-    } else {
-      r1.d++;
-      r2.d++;
-    }
+    const r1 = rec(p.a1);
+    const r2 = rec(p.a2);
+    r1.w += wa;
+    r1.l += wb;
+    r1.d += dr;
+    r2.w += wb;
+    r2.l += wa;
+    r2.d += dr;
 
-    if (relevant.has(a1) && relevant.has(a2)) {
-      const ab = cell(a1, a2);
-      const ba = cell(a2, a1);
-      if (m.winner === 1) {
-        ab.winsA++;
-        ba.winsB++;
-      } else if (m.winner === 2) {
-        ab.winsB++;
-        ba.winsA++;
-      } else {
-        ab.draws++;
-        ba.draws++;
-      }
+    if (relevant.has(p.a1) && relevant.has(p.a2)) {
+      const ab = cell(p.a1, p.a2);
+      const ba = cell(p.a2, p.a1);
+      ab.winsA += wa;
+      ab.winsB += wb;
+      ab.draws += dr;
+      ba.winsA += wb;
+      ba.winsB += wa;
+      ba.draws += dr;
     }
   }
 
@@ -170,14 +200,7 @@ async function computeForWindow(
     };
   });
 
-  await prisma.$transaction([
-    prisma.archetypeStat.deleteMany({ where: { format, windowDays, source: group.key } }),
-    prisma.archetypeStat.createMany({ data: archStats }),
-    prisma.matchupStat.deleteMany({ where: { format, windowDays, source: group.key } }),
-    prisma.matchupStat.createMany({ data: matchupStats }),
-  ]);
-
-  return { decks: totalDecks, archetypes: archStats.length, matchups: matchupStats.length };
+  return { totalDecks, archStats, matchupStats };
 }
 
 export async function computeAllAggregates(log: (m: string) => void = () => {}) {
@@ -187,12 +210,28 @@ export async function computeAllAggregates(log: (m: string) => void = () => {}) 
       log(`  ${format}: no data`);
       continue;
     }
-    for (const windowDays of WINDOW_CHOICES) {
-      const byGroup: Record<string, { decks: number }> = {};
-      for (const group of SOURCE_GROUPS) {
-        byGroup[group.key] = await computeForWindow(format, windowDays, anchor, group);
+    const cutoffs = WINDOW_CHOICES.map((w) => new Date(anchor.getTime() - w * 86_400_000));
+
+    const decksByWindow: Record<string, number[]> = {};
+    for (const group of SOURCE_GROUPS) {
+      const { deckRows, pairRows } = await fetchGroupRows(format, cutoffs, group.sources);
+      decksByWindow[group.key] = [];
+      for (let i = 0; i < WINDOW_CHOICES.length; i++) {
+        const windowDays = WINDOW_CHOICES[i];
+        const { totalDecks, archStats, matchupStats } = statsForWindow(format, windowDays, i, group, deckRows, pairRows);
+        decksByWindow[group.key][i] = totalDecks;
+        await prisma.$transaction([
+          prisma.archetypeStat.deleteMany({ where: { format, windowDays, source: group.key } }),
+          prisma.archetypeStat.createMany({ data: archStats }),
+          prisma.matchupStat.deleteMany({ where: { format, windowDays, source: group.key } }),
+          prisma.matchupStat.createMany({ data: matchupStats }),
+        ]);
       }
-      log(`  ${format} ${windowDays}d: all=${byGroup.all.decks} paper=${byGroup.paper.decks} mtgo=${byGroup.mtgo.decks} decks`);
     }
+    WINDOW_CHOICES.forEach((windowDays, i) => {
+      log(
+        `  ${format} ${windowDays}d: all=${decksByWindow.all[i]} paper=${decksByWindow.paper[i]} mtgo=${decksByWindow.mtgo[i]} decks`,
+      );
+    });
   }
 }

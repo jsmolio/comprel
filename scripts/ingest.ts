@@ -24,6 +24,26 @@ function flag(name: string): string | undefined {
   return hit?.split("=")[1];
 }
 
+// Supabase's pooler occasionally refuses connections for a minute or two
+// (and refuses them for longer stretches when the project is being restricted
+// for quota overage). Retry with backoff before declaring the run dead, so a
+// transient blip doesn't fire a failure email.
+async function waitForDb() {
+  const delaysMs = [0, 5_000, 15_000, 30_000, 60_000];
+  for (let i = 0; i < delaysMs.length; i++) {
+    if (delaysMs[i]) await new Promise((r) => setTimeout(r, delaysMs[i]));
+    try {
+      await prisma.$queryRaw`SELECT 1`;
+      return;
+    } catch (e) {
+      console.log(`  ! database unreachable (attempt ${i + 1}/${delaysMs.length}): ${(e as Error).message.trim().split("\n").pop()}`);
+    }
+  }
+  throw new Error(
+    "Database unreachable after ~2 minutes of retries. If this persists, check the Supabase dashboard — the project may be paused or restricted for exceeding free-tier quota (Settings → Usage).",
+  );
+}
+
 async function main() {
   const args = new Set(process.argv.slice(2).map((a) => a.split("=")[0]));
   const aggregateOnly = args.has("--aggregate-only");
@@ -32,6 +52,9 @@ async function main() {
   const boardsPerArchetype = Number(flag("boards-per-archetype")) || undefined;
   const keepBoardsDays = Number(flag("keep-boards-days")) || undefined;
   const retentionDays = Number(flag("retention-days")) || undefined;
+
+  console.log("→ Checking database connectivity…");
+  await waitForDb();
 
   let newTournaments = 0;
   let mtgoBroken = false;

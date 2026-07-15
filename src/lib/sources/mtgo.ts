@@ -14,6 +14,14 @@ const UA = { "User-Agent": "Mozilla/5.0 (compatible; comprel/1.0)" };
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+// A hung mtgo.com response must not stall the whole ingest (the scheduled run
+// has a hard workflow timeout); abort any single request after this long.
+const FETCH_TIMEOUT_MS = 15_000;
+
+// Bail out of the event loop once the scrape has run this long; leftovers are
+// picked up by the next cycle (or land via the volunteer cache anyway).
+const SCRAPE_BUDGET_MS = 6 * 60_000;
+
 /**
  * Fetch with retries on network errors and transient (5xx/429) responses. Returns
  * the Response — even a final non-ok one, so the caller can distinguish a 404 — or
@@ -22,7 +30,7 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 async function tryFetch(url: string, attempts = 3): Promise<Response | null> {
   for (let a = 0; a < attempts; a++) {
     try {
-      const res = await fetch(url, { headers: UA });
+      const res = await fetch(url, { headers: UA, signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
       if (res.ok || res.status === 404 || a === attempts - 1) return res;
     } catch {
       if (a === attempts - 1) return null;
@@ -197,7 +205,14 @@ export async function importMtgo(
   result.found = wanted.length;
   log(`  MTGO: ${wanted.length} recent events in tracked formats`);
 
+  const deadline = Date.now() + SCRAPE_BUDGET_MS;
+  let bailedEarly = false;
   for (const slug of wanted) {
+    if (Date.now() > deadline) {
+      bailedEarly = true;
+      log(`  ! MTGO: scrape time budget exhausted — remaining events resume next cycle`);
+      break;
+    }
     try {
       const res = await tryFetch(`${EVENT_URL}${slug}`, 2);
       if (!res || !res.ok) {
@@ -230,7 +245,8 @@ export async function importMtgo(
     await new Promise((r) => setTimeout(r, 60)); // be polite to mtgo.com
   }
   // Found events on the listing but parsed none → the event-page structure changed.
-  if (result.found > 0 && result.events === 0) result.structuralFailure = true;
+  // (Not conclusive if the time budget cut the loop short — that's a transient.)
+  if (!bailedEarly && result.found > 0 && result.events === 0) result.structuralFailure = true;
   log(`  MTGO: imported ${result.events} events, ${result.decks} decks (${result.errors} errors)`);
   return result;
 }
