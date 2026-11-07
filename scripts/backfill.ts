@@ -20,7 +20,7 @@ import { publishSnapshot } from "../src/lib/facts/publish";
 import { decidePublish } from "../src/lib/facts/publish-policy";
 import { FactStore, withPublishLock } from "../src/lib/facts/store";
 import type { SnapshotCoverage, VideosState } from "../src/lib/facts/types";
-import { refreshVideoState, selectVideoTargets } from "../src/lib/facts/videos";
+import { VIDEO_MAX_RESULTS, refreshVideoState, selectVideoTargets, videoHorizonStart } from "../src/lib/facts/videos";
 import { importMtgo } from "../src/lib/sources/mtgo";
 import { searchYoutube } from "../src/lib/sources/youtube-search";
 import { discoverRecentCacheFiles, SOURCE_LABELS, type DiscoveredCacheFile } from "../src/lib/sources/mtgodecklistcache";
@@ -242,14 +242,19 @@ async function main() {
     try {
       const extrasNow = store.readExtras();
       const preview = buildSnapshotBody(store.allEvents(), new Map(), { videos: [], banEvents: [], cards: {} }, version);
+      const today = now.toISOString().slice(0, 10);
       const refreshed = await refreshVideoState(
-        { videos: extrasNow.videos, refreshedOn: extrasNow.videoRefreshedOn ?? {} },
+        {
+          videos: extrasNow.videos,
+          refreshedOn: extrasNow.videoRefreshedOn ?? {},
+          attemptedOn: extrasNow.videoAttemptedOn ?? {},
+        },
         selectVideoTargets(preview.formats),
-        now.toISOString().slice(0, 10),
+        today,
         Boolean(process.env.YOUTUBE_API_KEY),
         async (target) => {
           try {
-            const hits = await searchYoutube(target.format, target.archetype);
+            const hits = await searchYoutube(target.format, target.archetype, VIDEO_MAX_RESULTS, videoHorizonStart(today));
             return { ok: true, videos: hits };
           } catch (error) {
             const message = (error as Error).message;
@@ -261,9 +266,15 @@ async function main() {
       );
       videosState = refreshed.videosState;
       const datesChanged =
-        JSON.stringify(refreshed.refreshedOn) !== JSON.stringify(extrasNow.videoRefreshedOn ?? {});
+        JSON.stringify(refreshed.refreshedOn) !== JSON.stringify(extrasNow.videoRefreshedOn ?? {}) ||
+        JSON.stringify(refreshed.attemptedOn) !== JSON.stringify(extrasNow.videoAttemptedOn ?? {});
       if (refreshed.changed || datesChanged) {
-        store.writeExtras({ ...extrasNow, videos: refreshed.videos, videoRefreshedOn: refreshed.refreshedOn });
+        store.writeExtras({
+          ...extrasNow,
+          videos: refreshed.videos,
+          videoRefreshedOn: refreshed.refreshedOn,
+          videoAttemptedOn: refreshed.attemptedOn,
+        });
       }
       log(
         `  videos: ${refreshed.videosState}, ${refreshed.videos.length} saved link(s)${refreshed.changed ? ", list changed" : ", list unchanged"}`,

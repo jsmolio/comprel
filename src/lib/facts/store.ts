@@ -219,6 +219,7 @@ export class FactStore {
       schemaVersion: 1,
       videos: parsed.videos ?? [],
       videoRefreshedOn: parsed.videoRefreshedOn ?? {},
+      videoAttemptedOn: parsed.videoAttemptedOn ?? {},
       banEvents: parsed.banEvents ?? [],
       banSnapshot: parsed.banSnapshot ?? {},
     };

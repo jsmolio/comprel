@@ -40,6 +40,7 @@ export async function syncBansToExtras(extras: FactExtras, log: (message: string
     schemaVersion: 1,
     videos: extras.videos,
     videoRefreshedOn: extras.videoRefreshedOn,
+    videoAttemptedOn: extras.videoAttemptedOn,
     banEvents: [...extras.banEvents],
     banSnapshot: { ...extras.banSnapshot },
   };

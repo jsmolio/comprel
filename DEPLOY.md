@@ -42,7 +42,11 @@ Not recoverable from the public cache:
 - `BanEvent` rows recorded by past ingests (curated dates in `src/lib/banlist.ts` still render)
 - Any event the upstream cache has since removed
 
-Videos are not searched from the website. The scheduled backfill searches YouTube at most once per UTC day for the top 6 archetypes in each format (30-day, all sources), stores up to 6 links each, and replaces that archetype's previous links only after a successful search. A quota error or other YouTube failure keeps the last saved links and marks the snapshot `videosState: "degraded"`. No key keeps the last saved links and marks `no-key`. Either way the tournament snapshot still publishes. The workflow reads the Actions secret `YOUTUBE_API_KEY`. It does not create that secret. Add it in the repo's Actions secrets, named exactly `YOUTUBE_API_KEY`, before expecting new links. A missing secret is not visible to this token (the secrets list API returned 403), so a run with an empty key will not refresh links.
+Videos are not searched from the website. The scheduled backfill may call YouTube `search.list` at most **36 times per UTC day**, including failed attempts and archetypes that enter the top set later that day. That is 6 formats × the top 6 archetypes in the 30-day all-sources slice, 100 quota units each, **3,600 units** against the default 10,000-unit daily quota. The 2-hour runs do not retry an archetype already attempted that UTC day. The next retry is the next UTC day.
+
+Each stored link must have an 11-character YouTube id and a `publishedAt` within the last **90 days** (also sent as `publishedAfter`). A successful search, including one whose results are all too old or invalid, replaces that archetype's links. A quota error or other failure keeps that archetype's previous links and sets `videosState` to `degraded`, which the page states. No API key spends no attempts, keeps the saved links, and sets `no-key`. Neither case fails the tournament publish.
+
+The workflow reads the Actions secret `YOUTUBE_API_KEY` and does not create it. Add a repository Actions secret with that exact name before expecting new links. Listing secrets returned 403 for this token, so it is not confirmed that the secret exists. A missing secret refreshes nothing.
 
 ## Scheduled publish
 
@@ -60,6 +64,6 @@ The previous deployment keeps serving until a newer one exists. To go back to Po
 
 ## App environment
 
-Runtime does not need `DATABASE_URL` or `DIRECT_URL`. `prisma generate` runs at install and does not connect. Optional: `YOUTUBE_API_KEY` for unsaved video search.
+Runtime does not need `DATABASE_URL`, `DIRECT_URL`, or `YOUTUBE_API_KEY`. `prisma generate` runs at install and does not connect. The YouTube key belongs on the GitHub Actions secret above, not on the website.
 
 `/api/ingest` returns 410 for every caller. It cannot write.
