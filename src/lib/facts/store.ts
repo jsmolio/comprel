@@ -218,6 +218,8 @@ export class FactStore {
     return {
       schemaVersion: 1,
       videos: parsed.videos ?? [],
+      videoRefreshedOn: parsed.videoRefreshedOn ?? {},
+      videoAttemptedOn: parsed.videoAttemptedOn ?? {},
       banEvents: parsed.banEvents ?? [],
       banSnapshot: parsed.banSnapshot ?? {},
     };
@@ -273,6 +275,7 @@ function stripPublishedAt(snapshot: Snapshot): SnapshotBody {
     videos: snapshot.videos,
     banEvents: snapshot.banEvents,
   };
+  if (snapshot.videosState) body.videosState = snapshot.videosState;
   if (snapshot.coverage) body.coverage = snapshot.coverage;
   return body;
 }

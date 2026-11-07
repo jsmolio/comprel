@@ -2,11 +2,9 @@ import { NextResponse, type NextRequest } from "next/server";
 import { snapshotHasArchetype, archetypeVideos } from "@/lib/queries";
 import { loadPublished } from "@/lib/published/load";
 import { resolveFormat } from "@/lib/slug";
-import { searchYoutube, youtubeEnabled } from "@/lib/sources/youtube-search";
 
-// Videos baked into the snapshot (from a read-only DB export) are returned as-is.
-// If none are cached and YOUTUBE_API_KEY is set, this searches YouTube and
-// returns the hits without writing them anywhere. There is no database.
+// Snapshot only. YouTube searches happen in the scheduled publisher, not on
+// page views, so visitors cannot spend the project quota.
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
@@ -26,21 +24,11 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ videos: [], status: "unknown-archetype" });
   }
 
-  const cached = archetypeVideos(loaded.snapshot, format, archetype);
-  if (cached.length > 0) {
-    return NextResponse.json({ videos: cached, status: "ok", persisted: true });
-  }
-  if (!youtubeEnabled()) {
-    return NextResponse.json({ videos: [], status: "disabled", persisted: false });
-  }
-  try {
-    const videos = await searchYoutube(format, archetype);
-    return NextResponse.json({
-      videos,
-      status: videos.length > 0 ? "ok" : "empty",
-      persisted: false,
-    });
-  } catch (e) {
-    return NextResponse.json({ videos: [], status: "error", error: (e as Error).message, persisted: false }, { status: 502 });
-  }
+  const videos = archetypeVideos(loaded.snapshot, format, archetype);
+  return NextResponse.json({
+    videos,
+    status: videos.length > 0 ? "ok" : "empty",
+    persisted: true,
+    videosState: loaded.snapshot.videosState ?? "current",
+  });
 }

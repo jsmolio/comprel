@@ -64,10 +64,16 @@ export interface StoredBanEvent {
 export interface FactExtras {
   schemaVersion: 1;
   videos: StoredVideo[];
+  /** UTC day (YYYY-MM-DD) of the last successful YouTube search for `format\\0archetype`. */
+  videoRefreshedOn?: Record<string, string>;
+  /** UTC day of the last search attempt, including failures. Counts toward the daily cap. */
+  videoAttemptedOn?: Record<string, string>;
   banEvents: StoredBanEvent[];
   /** Last Scryfall banned/restricted lists, so a later sync can diff. Not shown in the UI. */
   banSnapshot: Record<string, { banned: string[]; restricted: string[] }>;
 }
+
+export type VideosState = "current" | "degraded" | "no-key";
 
 export interface CardSnap {
   imageUrl: string | null;
@@ -161,6 +167,8 @@ export interface SnapshotBody {
   formats: FormatSnap[];
   cards: Record<string, CardSnap>;
   videos: StoredVideo[];
+  /** Omitted when unchanged so a skipped refresh does not rewrite the snapshot. */
+  videosState?: VideosState;
   banEvents: StoredBanEvent[];
   coverage?: SnapshotCoverage;
 }

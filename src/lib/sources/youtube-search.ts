@@ -22,12 +22,18 @@ export function youtubeEnabled(): boolean {
   return Boolean(process.env.YOUTUBE_API_KEY);
 }
 
-/** Live YouTube search. Does not persist results. */
-export async function searchYoutube(format: string, archetype: string, max = 6): Promise<YoutubeHit[]> {
+/** Live YouTube search. Does not persist results. `publishedAfter` is RFC 3339. */
+export async function searchYoutube(
+  format: string,
+  archetype: string,
+  max = 6,
+  publishedAfter?: string,
+): Promise<YoutubeHit[]> {
   const key = process.env.YOUTUBE_API_KEY;
   if (!key) return [];
   const q = `MTG ${format} ${archetype} gameplay`;
-  const url = `${SEARCH}?part=snippet&type=video&maxResults=${max}&order=relevance&q=${encodeURIComponent(q)}&key=${encodeURIComponent(key)}`;
+  const after = publishedAfter ? `&publishedAfter=${encodeURIComponent(publishedAfter)}` : "";
+  const url = `${SEARCH}?part=snippet&type=video&maxResults=${max}&order=relevance${after}&q=${encodeURIComponent(q)}&key=${encodeURIComponent(key)}`;
   const res = await fetch(url);
   if (!res.ok) throw new Error(`YouTube ${res.status}: ${(await res.text()).slice(0, 200)}`);
   const data = (await res.json()) as { items: YtItem[] };

@@ -19,6 +19,7 @@ export interface PublishOptions {
   beforeRename?: () => void;
   log?: (message: string) => void;
   coverage?: SnapshotBody["coverage"];
+  videosState?: SnapshotBody["videosState"];
 }
 
 /**
@@ -81,6 +82,7 @@ export async function publishSnapshot(store: FactStore, opts: PublishOptions): P
     { videos: extras.videos, banEvents: extras.banEvents, cards },
     opts.classifierVersion,
   );
+  if (opts.videosState) body.videosState = opts.videosState;
   if (opts.coverage) body.coverage = opts.coverage;
   const publishedAt = (opts.now ?? new Date()).toISOString();
   const written = store.writeSnapshot(body, publishedAt, { beforeRename: opts.beforeRename });
