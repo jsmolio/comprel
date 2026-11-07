@@ -13,7 +13,6 @@ import { SignatureCards } from "@/components/SignatureCards";
 import { VideoSection } from "@/components/VideoSection";
 import { MissingSnapshot } from "@/components/MissingSnapshot";
 import { loadPublished } from "@/lib/published/load";
-import { youtubeEnabled } from "@/lib/sources/youtube-search";
 import { ColorPips } from "@/components/ColorPips";
 import { TrendBadge } from "@/components/TrendBadge";
 import { ShareChart } from "@/components/ShareChart";
@@ -188,7 +187,12 @@ export default async function ArchetypePage({
         )}
       </section>
 
-      <VideoSection format={format} archetype={detail.archetype} initialVideos={videos} enabled={youtubeEnabled()} />
+      <VideoSection
+        format={format}
+        archetype={detail.archetype}
+        initialVideos={videos}
+        stale={loaded.snapshot.videosState === "degraded"}
+      />
 
       <section className="space-y-2">
         <h2 className="text-lg font-semibold">Sideboard guides</h2>

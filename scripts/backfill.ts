@@ -12,14 +12,17 @@ try {
 import fs from "node:fs";
 import path from "node:path";
 import { classifierVersion } from "../src/lib/facts/classifier-version";
+import { buildSnapshotBody } from "../src/lib/facts/compute";
 import { syncBansToExtras } from "../src/lib/facts/bans";
 import { cardNamesFromBoards, enrichCardSnaps } from "../src/lib/facts/cards";
 import { normalizeCacheItem } from "../src/lib/facts/normalize";
 import { publishSnapshot } from "../src/lib/facts/publish";
 import { decidePublish } from "../src/lib/facts/publish-policy";
 import { FactStore, withPublishLock } from "../src/lib/facts/store";
-import type { SnapshotCoverage } from "../src/lib/facts/types";
+import type { SnapshotCoverage, VideosState } from "../src/lib/facts/types";
+import { refreshVideoState, selectVideoTargets } from "../src/lib/facts/videos";
 import { importMtgo } from "../src/lib/sources/mtgo";
+import { searchYoutube } from "../src/lib/sources/youtube-search";
 import { discoverRecentCacheFiles, SOURCE_LABELS, type DiscoveredCacheFile } from "../src/lib/sources/mtgodecklistcache";
 import { FORMATS, type Format, type RawCacheItem } from "../src/lib/types";
 
@@ -235,6 +238,41 @@ async function main() {
     }
 
     const now = new Date();
+    let videosState: VideosState = process.env.YOUTUBE_API_KEY ? "current" : "no-key";
+    try {
+      const extrasNow = store.readExtras();
+      const preview = buildSnapshotBody(store.allEvents(), new Map(), { videos: [], banEvents: [], cards: {} }, version);
+      const refreshed = await refreshVideoState(
+        { videos: extrasNow.videos, refreshedOn: extrasNow.videoRefreshedOn ?? {} },
+        selectVideoTargets(preview.formats),
+        now.toISOString().slice(0, 10),
+        Boolean(process.env.YOUTUBE_API_KEY),
+        async (target) => {
+          try {
+            const hits = await searchYoutube(target.format, target.archetype);
+            return { ok: true, videos: hits };
+          } catch (error) {
+            const message = (error as Error).message;
+            const quota = /quotaExceeded|dailyLimitExceeded|rateLimitExceeded|\b429\b/.test(message);
+            log(`  ! videos ${target.format}/${target.archetype}: ${quota ? "quota" : "upstream error"}`);
+            return { ok: false, reason: quota ? "quota" : "error" };
+          }
+        },
+      );
+      videosState = refreshed.videosState;
+      const datesChanged =
+        JSON.stringify(refreshed.refreshedOn) !== JSON.stringify(extrasNow.videoRefreshedOn ?? {});
+      if (refreshed.changed || datesChanged) {
+        store.writeExtras({ ...extrasNow, videos: refreshed.videos, videoRefreshedOn: refreshed.refreshedOn });
+      }
+      log(
+        `  videos: ${refreshed.videosState}, ${refreshed.videos.length} saved link(s)${refreshed.changed ? ", list changed" : ", list unchanged"}`,
+      );
+    } catch (error) {
+      videosState = "degraded";
+      log(`  ! video refresh kept the previous list: ${(error as Error).message}`);
+    }
+
     const coverage: SnapshotCoverage = {
       complete: true,
       requestedDays: days,
@@ -255,6 +293,7 @@ async function main() {
     const published = await publishSnapshot(store, {
       classifierVersion: version,
       coverage,
+      videosState,
       log,
       prepareCards: noScryfall
         ? undefined

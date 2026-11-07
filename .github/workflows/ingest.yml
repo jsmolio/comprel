@@ -59,6 +59,9 @@ jobs:
         run: pnpm backfill --incremental
         env:
           GITHUB_TOKEN: ${{ github.token }}
+          # Empty when the Actions secret is not set. Backfill then keeps the
+          # saved video list and does not fail the tournament publish.
+          YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
       - name: Commit published data
         run: |
           git config user.name "github-actions[bot]"

@@ -1,6 +1,5 @@
 "use client";
 /* eslint-disable @next/next/no-img-element */
-import { useEffect, useRef, useState } from "react";
 import { fmtDate } from "@/lib/ui";
 
 export interface VideoItem {
@@ -15,35 +14,14 @@ export function VideoSection({
   format,
   archetype,
   initialVideos,
-  enabled,
+  stale = false,
 }: {
   format: string;
   archetype: string;
   initialVideos: VideoItem[];
-  enabled: boolean;
+  stale?: boolean;
 }) {
-  const [videos, setVideos] = useState<VideoItem[]>(initialVideos);
-  const [loading, setLoading] = useState(false);
-  // "settled" = we already have results or have finished a lazy fetch; prevents
-  // refetching while the user stays on the page.
-  const settled = useRef(initialVideos.length > 0);
-
-  useEffect(() => {
-    if (settled.current || !enabled) return;
-    settled.current = true;
-    const controller = new AbortController();
-    setLoading(true);
-    fetch(`/api/videos?format=${encodeURIComponent(format)}&archetype=${encodeURIComponent(archetype)}`, {
-      signal: controller.signal,
-    })
-      .then((r) => r.json())
-      .then((d) => setVideos(d.videos ?? []))
-      .catch(() => {
-        /* keep fallback */
-      })
-      .finally(() => setLoading(false));
-    return () => controller.abort();
-  }, [format, archetype, enabled]);
+  const videos = initialVideos;
 
   const searchUrl = `https://www.youtube.com/results?search_query=${encodeURIComponent(
     `MTG ${format} ${archetype} gameplay`,
@@ -61,23 +39,12 @@ export function VideoSection({
         </a>
       </div>
 
-      {loading ? (
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {[0, 1, 2].map((i) => (
-            <div key={i} className="overflow-hidden rounded-lg border border-neutral-800 bg-neutral-900/40">
-              <div className="aspect-video w-full animate-pulse bg-neutral-800" />
-              <div className="space-y-2 p-3">
-                <div className="h-3 w-3/4 animate-pulse rounded bg-neutral-800" />
-                <div className="h-2 w-1/3 animate-pulse rounded bg-neutral-800" />
-              </div>
-            </div>
-          ))}
-        </div>
-      ) : videos.length === 0 ? (
+      {stale && videos.length > 0 && (
+        <p className="text-xs text-amber-200/90">Showing the last saved videos. The latest refresh did not succeed.</p>
+      )}
+      {videos.length === 0 ? (
         <p className="rounded-lg border border-dashed border-neutral-800 bg-neutral-900/30 p-4 text-sm text-neutral-500">
-          {enabled
-            ? "No gameplay videos found for this archetype yet — try the search link above."
-            : "Video search is off. Set YOUTUBE_API_KEY to enable on-demand video lookup, or use the search link above."}
+          No saved videos for this archetype yet. Use the search link above.
         </p>
       ) : (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
