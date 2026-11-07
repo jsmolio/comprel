@@ -136,6 +136,23 @@ export interface FormatSnap {
   lists: Record<SourceFilter, Record<string, PublishedDeck[]>>;
 }
 
+export interface SnapshotCoverage {
+  /** True only when every discovered cache file in the requested window was ingested. */
+  complete: boolean;
+  requestedDays: number;
+  discovered: number;
+  ingested: number;
+  failed: number;
+  /** Cache files that downloaded and were empty, so they hold no event. */
+  emptyFiles: number;
+  newestFolderDate: string | null;
+  oldestFolderDate: string | null;
+  /** Days from the newest cache folder to the publish clock. Null when no folders were found. */
+  cacheLagDays: number | null;
+  /** Same-day MTGO scrape. "unavailable" is a structural failure published only with an explicit override. */
+  mtgo: "ok" | "skipped" | "unavailable";
+}
+
 export interface SnapshotBody {
   schemaVersion: 1;
   status: "ok";
@@ -145,6 +162,7 @@ export interface SnapshotBody {
   cards: Record<string, CardSnap>;
   videos: StoredVideo[];
   banEvents: StoredBanEvent[];
+  coverage?: SnapshotCoverage;
 }
 
 export interface Snapshot extends SnapshotBody {

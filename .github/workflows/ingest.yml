@@ -3,26 +3,31 @@ name: Scheduled ingest
 # Publishes compact event facts and a display snapshot into this repo.
 # The site reads that snapshot. This job does not connect to Postgres.
 #
-# The workflow is left disabled in the GitHub UI until someone turns it back
-# on. Editing this file does not re-enable a workflow that was disabled manually,
-# and this change must not be dispatched against production.
+# The workflow stays disabled in the GitHub UI until someone turns it back
+# on after the first reviewed snapshot is on main. Editing this file does not
+# re-enable a workflow that was disabled manually. Do not dispatch it as part
+# of opening this change.
 #
-# Token and deploy behavior (do not guess past this):
+# A non-zero backfill exit skips every later step, including the commit.
+# GitHub Actions runs a step only when the previous step succeeded, and this
+# job does not override that. MTGO structural failure and any missed cache
+# file exit 1 before the snapshot is renamed, so a failed run cannot push a
+# partial refresh. There is no exit-2 path that commits first and fails after.
+#
+# Token and deploy behavior:
 # - `permissions: contents: write` lets the default GITHUB_TOKEN push to this
 #   repo. Org or repo settings that cap token permissions at read will make
-#   the push fail; a fine-grained PAT is the fallback, and it is not configured
-#   here.
+#   the push fail. A fine-grained PAT is not configured here.
 # - GitHub documents that events caused by GITHUB_TOKEN do not create a new
 #   workflow run, except workflow_dispatch, repository_dispatch, and a few
 #   pull_request activities. A push from this job does not retrigger itself.
 #   The same page says those commits do not trigger a GitHub Pages build.
 #   https://docs.github.com/en/actions/concepts/security/github_token
-# - Vercel is not GitHub Pages. It deploys from its own GitHub App. This
-#   environment could not read the repo's webhooks (API 403), so it is not
-#   confirmed here that the Vercel app is installed. If it is still connected
-#   to main, a bot push is a production deployment: GitHub's workflow exception
-#   does not apply to other apps. Branch protection that rejects the bot stops
-#   the push instead; that setting was also not readable (API 403).
+# - Vercel is not GitHub Pages. It deploys from its own GitHub App on pushes
+#   to the production branch. A push to main from this job, once the workflow
+#   is enabled and Vercel is still connected, is a production deployment.
+#   Preview deployments follow pushes to other branches. Branch protection
+#   that rejects the bot stops the push instead of deploying.
 
 on:
   schedule:
@@ -51,17 +56,7 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - name: Incremental publish
-        id: publish
-        run: |
-          set +e
-          pnpm backfill --incremental
-          code=$?
-          set -e
-          echo "code=$code" >> "$GITHUB_OUTPUT"
-          if [ "$code" -eq 1 ]; then
-            echo "Publish failed before a snapshot rename. Not committing."
-            exit 1
-          fi
+        run: pnpm backfill --incremental
         env:
           GITHUB_TOKEN: ${{ github.token }}
       - name: Commit published data
@@ -75,8 +70,3 @@ jobs:
           fi
           git commit -m "Publish metagame snapshot"
           git push
-      - name: Surface MTGO structural failure
-        if: steps.publish.outputs.code == '2'
-        run: |
-          echo "Snapshot was published, but the MTGO scrape reported a structural failure."
-          exit 1

@@ -263,7 +263,7 @@ export class FactStore {
 }
 
 function stripPublishedAt(snapshot: Snapshot): SnapshotBody {
-  return {
+  const body: SnapshotBody = {
     schemaVersion: snapshot.schemaVersion,
     status: snapshot.status,
     classifierVersion: snapshot.classifierVersion,
@@ -273,6 +273,8 @@ function stripPublishedAt(snapshot: Snapshot): SnapshotBody {
     videos: snapshot.videos,
     banEvents: snapshot.banEvents,
   };
+  if (snapshot.coverage) body.coverage = snapshot.coverage;
+  return body;
 }
 
 const LOCK_STALE_MS = 2 * 60 * 60 * 1000;

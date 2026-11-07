@@ -60,6 +60,9 @@ async function ghJson<T>(url: string): Promise<T> {
 async function getTree(sha: string, recursive = false): Promise<TreeEntry[]> {
   const url = `${API}/repos/${REPO}/git/trees/${sha}${recursive ? "?recursive=1" : ""}`;
   const data = await ghJson<{ tree: TreeEntry[]; truncated: boolean }>(url);
+  if (data.truncated) {
+    throw new Error(`GitHub tree ${sha} was truncated; refusing to discover a partial tournament file list`);
+  }
   return data.tree;
 }
 

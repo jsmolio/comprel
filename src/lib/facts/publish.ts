@@ -18,6 +18,7 @@ export interface PublishOptions {
   fetchNormalized?: (sourcePath: string) => Promise<NormalizedEvent | null>;
   beforeRename?: () => void;
   log?: (message: string) => void;
+  coverage?: SnapshotBody["coverage"];
 }
 
 /**
@@ -80,6 +81,7 @@ export async function publishSnapshot(store: FactStore, opts: PublishOptions): P
     { videos: extras.videos, banEvents: extras.banEvents, cards },
     opts.classifierVersion,
   );
+  if (opts.coverage) body.coverage = opts.coverage;
   const publishedAt = (opts.now ?? new Date()).toISOString();
   const written = store.writeSnapshot(body, publishedAt, { beforeRename: opts.beforeRename });
   return { changed: written.changed, keptLists: wanted.length };

@@ -46,7 +46,9 @@ On-demand video search still works when `YOUTUBE_API_KEY` is set, and those hits
 
 ## Scheduled publish
 
-`.github/workflows/ingest.yml` runs `pnpm backfill --incremental` and, only if that did not fail before the snapshot rename, commits `data/facts` and `data/published` and pushes with `GITHUB_TOKEN`.
+`.github/workflows/ingest.yml` runs `pnpm backfill --incremental` and commits `data/facts` and `data/published` only when that process exits 0. A missed cache file or a structural MTGO failure exits 1 before the snapshot is renamed, and GitHub Actions then skips the commit step. There is no path that pushes a snapshot and fails the job afterwards. Passing `--allow-incomplete-mtgo` publishes a cache-complete snapshot that records MTGO as unavailable. The scheduled workflow does not pass that flag.
+
+The workflow stays disabled in the GitHub UI through the first production release. Merging the YAML does not turn a manually disabled workflow back on. Do not dispatch it until that first snapshot is on main and you want the two-hour refresh. A later push to `main` from the enabled job is a production Vercel deploy. Pushes to this PR branch are preview deploys.
 
 Pushing to `main` is what updates production: Vercel deploys that push. GitHub will not start another run of this workflow from the bot’s own push. Do not enable or dispatch the workflow until a snapshot has been reviewed. The workflow was disabled manually; merging this file does not turn it back on.
 

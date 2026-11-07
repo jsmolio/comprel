@@ -293,7 +293,8 @@ export function selectKeptDecks(events: FactEvent[]): KeptDeck[] {
       }
       for (const [archetype, refs] of grouped) {
         refs.sort(listSort);
-        for (const ref of refs.slice(0, LISTS_PER_ARCHETYPE)) {
+        // Keep a few extras so an event with no published list does not blank the column.
+        for (const ref of refs.slice(0, LISTS_PER_ARCHETYPE + 3)) {
           kept.push({ event: ref.event, player: ref.player, archetype });
         }
       }

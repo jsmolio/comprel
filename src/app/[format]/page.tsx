@@ -54,7 +54,7 @@ export default async function FormatPage({
 
       {breakdown.rows.length === 0 ? (
         <p className="rounded-lg border border-neutral-800 bg-neutral-900/40 p-6 text-neutral-400">
-          No decks in this window/source. Run <code className="text-neutral-200">pnpm ingest</code> to populate data.
+          No decks in this window and source.
         </p>
       ) : (
         <>
