@@ -48,6 +48,8 @@ Each stored link must have an 11-character YouTube id and a `publishedAt` within
 
 The workflow reads the Actions secret `YOUTUBE_API_KEY` and does not create it. Add a repository Actions secret with that exact name before expecting new links. Listing secrets returned 403 for this token, so it is not confirmed that the secret exists. A missing secret refreshes nothing.
 
+Same-day MTGO pages that time out, return a non-200, or contain no decklists are logged with the public event URL and a reason. Those events are not imported and any facts already stored for them stay. The snapshot is still published and marked `mtgo: "partial"`. The run fails closed only when the cache file list is incomplete or the MTGO scrape is structural (the listing is gone, or every tracked event failed). A partial board file does not block a fetch of the players it is missing. One request is made per such event. A stored non-empty list is not replaced. A source that confirms a player has no list is not asked again for 7 days. A network failure is not cached and does not erase lists.
+
 ## Scheduled publish
 
 `.github/workflows/ingest.yml` runs `pnpm backfill --incremental` and commits `data/facts` and `data/published` only when that process exits 0. A missed cache file or a structural MTGO failure exits 1 before the snapshot is renamed, and GitHub Actions then skips the commit step. There is no path that pushes a snapshot and fails the job afterwards. Passing `--allow-incomplete-mtgo` publishes a cache-complete snapshot that records MTGO as unavailable. The scheduled workflow does not pass that flag.

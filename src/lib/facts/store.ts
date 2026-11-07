@@ -220,6 +220,7 @@ export class FactStore {
       videos: parsed.videos ?? [],
       videoRefreshedOn: parsed.videoRefreshedOn ?? {},
       videoAttemptedOn: parsed.videoAttemptedOn ?? {},
+      boardEmptyOn: parsed.boardEmptyOn ?? {},
       banEvents: parsed.banEvents ?? [],
       banSnapshot: parsed.banSnapshot ?? {},
     };

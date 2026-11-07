@@ -11,6 +11,7 @@ try {
 
 import fs from "node:fs";
 import path from "node:path";
+import { mergeStoredLists, preserveArchetypes } from "../src/lib/facts/boards";
 import { classifierVersion } from "../src/lib/facts/classifier-version";
 import { buildSnapshotBody } from "../src/lib/facts/compute";
 import { syncBansToExtras } from "../src/lib/facts/bans";
@@ -66,7 +67,7 @@ function saveDone(store: FactStore, version: string, done: Set<string>) {
   fs.renameSync(tmp, file);
 }
 
-type FetchResult = { kind: "event"; item: RawCacheItem } | { kind: "empty" } | { kind: "failed" };
+type FetchResult = { kind: "event"; item: RawCacheItem } | { kind: "empty" } | { kind: "missing" } | { kind: "failed" };
 
 async function fetchJson(url: string): Promise<FetchResult> {
   for (let attempt = 0; attempt < FETCH_ATTEMPTS; attempt++) {
@@ -84,7 +85,8 @@ async function fetchJson(url: string): Promise<FetchResult> {
           return { kind: "failed" };
         }
       }
-      if (res.status === 404 || (res.status !== 429 && res.status < 500)) return { kind: "failed" };
+      if (res.status === 404) return { kind: "missing" };
+      if (res.status !== 429 && res.status < 500) return { kind: "failed" };
     } catch {
       /* retry */
     }
@@ -159,7 +161,7 @@ async function main() {
         return;
       }
       const fetched = await fetchJson(file.rawUrl);
-      if (fetched.kind === "failed") {
+      if (fetched.kind === "failed" || fetched.kind === "missing") {
         failed.push(file.fullPath);
         finished++;
         return;
@@ -193,6 +195,7 @@ async function main() {
     log(`  cache events changed ${written}, unchanged or untracked ${skipped}, failed ${failed.length}`);
 
     let mtgo: SnapshotCoverage["mtgo"] = noMtgo ? "skipped" : "ok";
+    let mtgoMissed = 0;
     if (!noMtgo && failed.length === 0) {
       log("→ Scraping MTGO for same-day events…");
       const scraped = await importMtgo({
@@ -207,12 +210,17 @@ async function main() {
           const sourcePath = `Tournaments/MTGO/${y}/${m}/${d}/${slug}.json`;
           const normalized = normalizeCacheItem("mtgo.com", slug, item, allow, version, sourcePath, format);
           if (!normalized) return;
-          store.putEvent(normalized.event);
-          // The cache file may not exist yet. Keep the lists we just scraped.
-          store.writeBoards(normalized.event.id, normalized.boards);
+          const kept = preserveArchetypes(store.readEvent(normalized.event.id), normalized);
+          store.putEvent(kept.event);
+          // Do not replace a good stored list with an empty scrape.
+          store.writeBoards(kept.event.id, mergeStoredLists(store.readBoards(kept.event.id), kept.boards));
         },
       });
       if (scraped.structuralFailure) mtgo = "unavailable";
+      else if (scraped.errors > 0) {
+        mtgo = "partial";
+        mtgoMissed = scraped.errors;
+      }
     }
 
     const decision = decidePublish({
@@ -295,6 +303,7 @@ async function main() {
       oldestFolderDate: span.oldest,
       cacheLagDays: lagDays(span.newest, now),
       mtgo,
+      mtgoMissed: mtgo === "partial" ? mtgoMissed : undefined,
     };
     if (coverage.cacheLagDays != null && coverage.cacheLagDays > 2) {
       log(`  ! newest cache folder is ${coverage.cacheLagDays} days behind ${now.toISOString().slice(0, 10)}`);
@@ -312,11 +321,13 @@ async function main() {
       fetchNormalized: async (sourcePath) => {
         const folder = sourcePath.split("/")[1];
         const label = SOURCE_LABELS[folder];
-        if (!label) return null;
+        if (!label) return { ok: false, reason: "empty" };
         const fetched = await fetchJson(cacheUrl(sourcePath));
-        if (fetched.kind !== "event") return null;
+        if (fetched.kind === "missing" || fetched.kind === "empty") return { ok: false, reason: "empty" };
+        if (fetched.kind !== "event") return { ok: false, reason: "network" };
         const stableId = sourcePath.split("/").pop()!.replace(/\.json$/i, "");
-        return normalizeCacheItem(label, stableId, fetched.item, allow, version, sourcePath);
+        const normalized = normalizeCacheItem(label, stableId, fetched.item, allow, version, sourcePath);
+        return normalized ? { ok: true, normalized } : { ok: false, reason: "empty" };
       },
     });
     log(published.changed ? `  snapshot updated (${decision.reason})` : "  snapshot unchanged");

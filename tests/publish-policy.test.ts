@@ -19,6 +19,7 @@ test("cache holes and structural MTGO failure do not publish", () => {
   assert.match(allowed.reason, /MTGO marked unavailable/);
   assert.equal(decidePublish({ discovered: 10, failed: 0, mtgo: "ok", allowIncompleteMtgo: false }).publish, true);
   assert.equal(decidePublish({ discovered: 10, failed: 0, mtgo: "skipped", allowIncompleteMtgo: false }).publish, true);
+  assert.equal(decidePublish({ discovered: 10, failed: 0, mtgo: "partial", allowIncompleteMtgo: false }).publish, true);
 });
 
 test("a refused publish does not advance the snapshot file", () => {
