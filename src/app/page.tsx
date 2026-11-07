@@ -1,13 +1,15 @@
 import Link from "next/link";
 import { getFormatSummaries, getLastRefresh } from "@/lib/queries";
 import { ColorPips } from "@/components/ColorPips";
+import { MissingSnapshot } from "@/components/MissingSnapshot";
 import { TrendBadge } from "@/components/TrendBadge";
 import { colorNameToId } from "@/lib/archetype/colors";
+import { loadPublished } from "@/lib/published/load";
 import { fmtDate, formatArchetype, pct, timeAgo } from "@/lib/ui";
 
-export const dynamic = "force-dynamic";
-
 export default async function Home() {
+  const loaded = loadPublished();
+  if (!loaded.ok) return <MissingSnapshot reason={loaded.reason} />;
   const [summaries, lastRefresh] = await Promise.all([getFormatSummaries(), getLastRefresh()]);
 
   return (

@@ -68,7 +68,12 @@ function childSha(tree: TreeEntry[], name: string): string | undefined {
 }
 
 /** Discover the most recent `dayFolders` days of tournament files for a source. */
-async function listRecentFiles(branch: string, source: string, dayFolders: number): Promise<RemoteFile[]> {
+async function listRecentFiles(
+  branch: string,
+  source: string,
+  dayFolders: number,
+  yearsToScan = 2,
+): Promise<RemoteFile[]> {
   const root = await getTree(branch);
   const tournamentsSha = childSha(root, "Tournaments");
   if (!tournamentsSha) return [];
@@ -81,9 +86,10 @@ async function listRecentFiles(branch: string, source: string, dayFolders: numbe
     .sort((a, b) => b.path.localeCompare(a.path));
   if (years.length === 0) return [];
 
-  // Scan the two most recent years so a window can cross the Jan boundary.
+  // Default scans two years so a short window can cross January. Longer history
+  // (the 730-day trend) passes a larger yearsToScan.
   const files: RemoteFile[] = [];
-  for (const year of years.slice(0, 2)) {
+  for (const year of years.slice(0, yearsToScan)) {
     const entries = await getTree(year.sha, true); // paths relative: MM/DD/file.json
     for (const e of entries) {
       if (e.type !== "blob" || !e.path.endsWith(".json")) continue;
@@ -103,6 +109,36 @@ async function listRecentFiles(branch: string, source: string, dayFolders: numbe
   const days = [...new Set(files.map((f) => f.date.getTime()))].sort((a, b) => b - a).slice(0, dayFolders);
   const keep = new Set(days);
   return files.filter((f) => keep.has(f.date.getTime()));
+}
+
+export interface DiscoveredCacheFile {
+  /** Folder name in the cache repo, e.g. "MTGmelee". */
+  sourceFolder: string;
+  /** Tournament.source label, e.g. "melee.gg". */
+  label: string;
+  fullPath: string;
+  rawUrl: string;
+  /** UTC day of the directory, YYYY-MM-DD. The file's own event date may differ. */
+  folderDate: string;
+}
+
+/** Public-cache discovery used by the file publisher. Does not touch the database. */
+export async function discoverRecentCacheFiles(dayFolders: number, yearsToScan = 2): Promise<DiscoveredCacheFile[]> {
+  const branch = (await ghJson<{ default_branch: string }>(`${API}/repos/${REPO}`)).default_branch;
+  const out: DiscoveredCacheFile[] = [];
+  for (const sourceFolder of Object.keys(SOURCE_LABELS)) {
+    const files = await listRecentFiles(branch, sourceFolder, dayFolders, yearsToScan);
+    for (const f of files) {
+      out.push({
+        sourceFolder,
+        label: SOURCE_LABELS[sourceFolder] ?? sourceFolder,
+        fullPath: f.fullPath,
+        rawUrl: f.rawUrl,
+        folderDate: f.date.toISOString().slice(0, 10),
+      });
+    }
+  }
+  return out;
 }
 
 function toBoard(items: { Count: number; CardName: string }[] | null | undefined): BoardCard[] {

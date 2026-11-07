@@ -1,3 +1,8 @@
+// LEGACY Postgres ingest. Writes tournaments, decks, and matches.
+// The site no longer reads this database. Prefer `pnpm backfill` (public cache)
+// or `pnpm export-db --yes-read-only` (read-only copy). Do not point this at
+// production unless you intend to write there.
+//
 // compREL ingest CLI.
 //   pnpm ingest                 full run: import -> aggregate -> enrich cards
 //   pnpm ingest --days=21       widen the import window (default 12 day-folders)

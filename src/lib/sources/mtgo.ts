@@ -174,7 +174,13 @@ export interface MtgoImportResult {
 
 /** Scrape recent MTGO events (last `days`) for the tracked formats, straight from mtgo.com. */
 export async function importMtgo(
-  opts: { days?: number; log?: (m: string) => void; dryRun?: boolean } = {},
+  opts: {
+    days?: number;
+    log?: (m: string) => void;
+    dryRun?: boolean;
+    /** When set, events are handed to the caller instead of written to Postgres. */
+    onItem?: (item: RawCacheItem, slug: string, format: Format) => Promise<void> | void;
+  } = {},
 ): Promise<MtgoImportResult> {
   const days = opts.days ?? 4;
   const log = opts.log ?? (() => {});
@@ -231,6 +237,10 @@ export async function importMtgo(
         result.decks += item.Decks.length;
         const matches = (item.Rounds ?? []).reduce((n, r) => n + r.Matches.length, 0);
         log(`    [dry] ${fmt} ${slug}: ${item.Decks.length} decks, ${item.Standings?.length ?? 0} ranked, ${matches} playoff matches`);
+      } else if (opts.onItem) {
+        await opts.onItem(item, slug, fmt);
+        result.events++;
+        result.decks += item.Decks.length;
       } else {
         const out = await importCacheItem("mtgo.com", slug, item, allow, fmt);
         if (out.imported) {

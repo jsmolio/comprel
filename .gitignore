@@ -45,3 +45,7 @@ next-env.d.ts
 /prisma/dev.db
 /prisma/dev.db-journal
 *.db
+
+# publish scratch
+data/facts/v1/.lock
+data/**/*.tmp

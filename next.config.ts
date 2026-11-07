@@ -1,10 +1,11 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  // The /api/ingest route reads archetype rules from data/ at runtime; make sure
-  // those files ship with the serverless function when deployed.
+  // Dynamic routes read the snapshot from disk at request time. Fully static
+  // pages inline it at build instead. Narrow include so the file is in the
+  // server trace when a snapshot has been published.
   outputFileTracingIncludes: {
-    "/api/ingest": ["./data/**/*"],
+    "/*": ["./data/published/snapshot.json"],
   },
 };
 

@@ -1,22 +1,45 @@
 name: Scheduled ingest
 
-# Runs the incremental ingest (import new tournaments -> classify -> aggregate
-# -> enrich cards) against the production Postgres. Lives here instead of a
-# Vercel Cron because the full aggregation (~1 min) exceeds serverless limits.
+# Publishes compact event facts and a display snapshot into this repo.
+# The site reads that snapshot. This job does not connect to Postgres.
+#
+# The workflow is left disabled in the GitHub UI until someone turns it back
+# on. Editing this file does not re-enable a workflow that was disabled manually,
+# and this change must not be dispatched against production.
+#
+# Token and deploy behavior (do not guess past this):
+# - `permissions: contents: write` lets the default GITHUB_TOKEN push to this
+#   repo. Org or repo settings that cap token permissions at read will make
+#   the push fail; a fine-grained PAT is the fallback, and it is not configured
+#   here.
+# - GitHub documents that events caused by GITHUB_TOKEN do not create a new
+#   workflow run, except workflow_dispatch, repository_dispatch, and a few
+#   pull_request activities. A push from this job does not retrigger itself.
+#   The same page says those commits do not trigger a GitHub Pages build.
+#   https://docs.github.com/en/actions/concepts/security/github_token
+# - Vercel is not GitHub Pages. It deploys from its own GitHub App. This
+#   environment could not read the repo's webhooks (API 403), so it is not
+#   confirmed here that the Vercel app is installed. If it is still connected
+#   to main, a bot push is a production deployment: GitHub's workflow exception
+#   does not apply to other apps. Branch protection that rejects the bot stops
+#   the push instead; that setting was also not readable (API 403).
 
 on:
   schedule:
     - cron: "0 */2 * * *" # every 2 hours (UTC)
-  workflow_dispatch: {} # allow manual runs from the Actions tab
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
 
 concurrency:
   group: comprel-ingest
   cancel-in-progress: false
 
 jobs:
-  ingest:
+  publish:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -27,10 +50,33 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - name: Incremental ingest
-        run: pnpm ingest --incremental --boards-per-archetype=5 --retention-days=365
+      - name: Incremental publish
+        id: publish
+        run: |
+          set +e
+          pnpm backfill --incremental
+          code=$?
+          set -e
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+          if [ "$code" -eq 1 ]; then
+            echo "Publish failed before a snapshot rename. Not committing."
+            exit 1
+          fi
         env:
-          # Use the DIRECT (non-pooled) connection for this batch job.
-          DATABASE_URL: ${{ secrets.DIRECT_URL }}
-          # Raises GitHub API rate limit for cache discovery (auto-provided).
           GITHUB_TOKEN: ${{ github.token }}
+      - name: Commit published data
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/facts data/published
+          if git diff --cached --quiet; then
+            echo "No data changes."
+            exit 0
+          fi
+          git commit -m "Publish metagame snapshot"
+          git push
+      - name: Surface MTGO structural failure
+        if: steps.publish.outputs.code == '2'
+        run: |
+          echo "Snapshot was published, but the MTGO scrape reported a structural failure."
+          exit 1
