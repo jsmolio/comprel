@@ -1,54 +1,29 @@
 import { prisma } from "../db";
 import { FORMATS } from "../types";
+import { searchYoutube, youtubeEnabled } from "./youtube-search";
 
-// YouTube Data API v3 search. Pulls gameplay / sideboard-guide videos per
-// archetype by keyword. Degrades gracefully (no-op) when YOUTUBE_API_KEY is
-// unset. https://developers.google.com/youtube/v3/docs/search/list
+export { youtubeEnabled };
 
-const SEARCH = "https://www.googleapis.com/youtube/v3/search";
-
-interface YtItem {
-  id: { videoId?: string };
-  snippet: {
-    title: string;
-    channelTitle: string;
-    publishedAt: string;
-    thumbnails: { medium?: { url: string }; high?: { url: string } };
-  };
-}
-
-export function youtubeEnabled(): boolean {
-  return Boolean(process.env.YOUTUBE_API_KEY);
-}
-
-/** Search + cache up to `max` videos for one archetype. Returns count stored. */
+/**
+ * Legacy Postgres cache. The site does not call this. Static mode searches
+ * YouTube on demand without writing, and durable videos come from `pnpm export-db`.
+ */
 export async function searchArchetypeVideos(format: string, archetype: string, max = 6): Promise<number> {
-  const key = process.env.YOUTUBE_API_KEY;
-  if (!key) return 0;
-
-  const q = `MTG ${format} ${archetype} gameplay`;
-  const url = `${SEARCH}?part=snippet&type=video&maxResults=${max}&order=relevance&q=${encodeURIComponent(q)}&key=${key}`;
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`YouTube ${res.status}: ${(await res.text()).slice(0, 200)}`);
-  const data = (await res.json()) as { items: YtItem[] };
-
+  const hits = await searchYoutube(format, archetype, max);
   let stored = 0;
-  for (const it of data.items ?? []) {
-    const id = it.id?.videoId;
-    if (!id) continue;
-    const thumbnail = it.snippet.thumbnails?.medium?.url ?? it.snippet.thumbnails?.high?.url ?? null;
+  for (const hit of hits) {
     await prisma.video.upsert({
-      where: { id },
+      where: { id: hit.id },
       create: {
-        id,
+        id: hit.id,
         format,
         archetype,
-        title: it.snippet.title,
-        channelTitle: it.snippet.channelTitle,
-        publishedAt: new Date(it.snippet.publishedAt),
-        thumbnail,
+        title: hit.title,
+        channelTitle: hit.channelTitle,
+        publishedAt: hit.publishedAt ? new Date(hit.publishedAt) : null,
+        thumbnail: hit.thumbnail,
       },
-      update: { format, archetype, title: it.snippet.title, channelTitle: it.snippet.channelTitle, thumbnail },
+      update: { format, archetype, title: hit.title, channelTitle: hit.channelTitle, thumbnail: hit.thumbnail },
     });
     stored++;
   }

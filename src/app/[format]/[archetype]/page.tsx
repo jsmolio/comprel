@@ -11,14 +11,14 @@ import { DeckList, type CardMap } from "@/components/DeckList";
 import { CollapsibleDecks } from "@/components/CollapsibleDecks";
 import { SignatureCards } from "@/components/SignatureCards";
 import { VideoSection } from "@/components/VideoSection";
-import { youtubeEnabled } from "@/lib/sources/youtube";
+import { MissingSnapshot } from "@/components/MissingSnapshot";
+import { loadPublished } from "@/lib/published/load";
+import { youtubeEnabled } from "@/lib/sources/youtube-search";
 import { ColorPips } from "@/components/ColorPips";
 import { TrendBadge } from "@/components/TrendBadge";
 import { ShareChart } from "@/components/ShareChart";
 import { conversionRate, fmtDate, formatArchetype, pageQuery, pct, winrateColor } from "@/lib/ui";
 import type { BoardCard } from "@/lib/types";
-
-export const dynamic = "force-dynamic";
 
 export default async function ArchetypePage({
   params,
@@ -28,6 +28,9 @@ export default async function ArchetypePage({
   searchParams: Promise<{ window?: string; source?: string }>;
 }) {
   const { format: formatSlug, archetype: archetypeSlug } = await params;
+  const loaded = loadPublished();
+  if (!loaded.ok) return <MissingSnapshot reason={loaded.reason} />;
+
   const format = resolveFormat(formatSlug);
   if (!format) notFound();
 

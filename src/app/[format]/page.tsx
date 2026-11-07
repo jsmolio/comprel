@@ -1,5 +1,7 @@
 import { notFound } from "next/navigation";
 import { getMatchupMatrix, getMetaBreakdown, normalizeSource, normalizeWindow } from "@/lib/queries";
+import { MissingSnapshot } from "@/components/MissingSnapshot";
+import { loadPublished } from "@/lib/published/load";
 import { resolveFormat } from "@/lib/slug";
 import { FormatTabs } from "@/components/FormatTabs";
 import { WindowToggle } from "@/components/WindowToggle";
@@ -7,8 +9,6 @@ import { SourceToggle } from "@/components/SourceToggle";
 import { MetaShareTable } from "@/components/MetaShareTable";
 import { MatchupMatrix } from "@/components/MatchupMatrix";
 import { fmtDate } from "@/lib/ui";
-
-export const dynamic = "force-dynamic";
 
 export default async function FormatPage({
   params,
@@ -18,6 +18,9 @@ export default async function FormatPage({
   searchParams: Promise<{ window?: string; source?: string }>;
 }) {
   const { format: formatSlug } = await params;
+  const loaded = loadPublished();
+  if (!loaded.ok) return <MissingSnapshot reason={loaded.reason} />;
+
   const format = resolveFormat(formatSlug);
   if (!format) notFound();
 
@@ -51,7 +54,7 @@ export default async function FormatPage({
 
       {breakdown.rows.length === 0 ? (
         <p className="rounded-lg border border-neutral-800 bg-neutral-900/40 p-6 text-neutral-400">
-          No decks in this window/source. Run <code className="text-neutral-200">pnpm ingest</code> to populate data.
+          No decks in this window and source.
         </p>
       ) : (
         <>

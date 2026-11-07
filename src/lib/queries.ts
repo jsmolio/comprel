@@ -1,13 +1,13 @@
-import { prisma } from "./db";
-import { slugify } from "./slug";
-import { anchorDateForFormat } from "./analytics/aggregate";
 import { BANS } from "./banlist";
+import { sliceKey } from "./facts/compute";
+import type { FormatSnap, SnapMatchup, SnapRow, Snapshot } from "./facts/types";
+import { loadPublished } from "./published/load";
+import { slugify } from "./slug";
 import {
   DEFAULT_SOURCE,
   DEFAULT_WINDOW_DAYS,
   FORMATS,
   SOURCE_FILTERS,
-  SOURCE_GROUP_MEMBERS,
   WINDOW_CHOICES,
   type BoardCard,
   type Format,
@@ -21,11 +21,6 @@ export function normalizeWindow(value: string | undefined): number {
 
 export function normalizeSource(value: string | undefined): SourceFilter {
   return (SOURCE_FILTERS as readonly string[]).includes(value ?? "") ? (value as SourceFilter) : DEFAULT_SOURCE;
-}
-
-// Prisma relation filter scoping decks/tournaments to a source group.
-function sourceFilter(source: SourceFilter) {
-  return source === "all" ? {} : { tournament: { source: { in: SOURCE_GROUP_MEMBERS[source] } } };
 }
 
 export interface Conversion {
@@ -43,191 +38,8 @@ export interface ArchetypeRow {
   metaShare: number;
   winRate: number;
   sampleMatches: number;
-  // On-demand enrichments (computed live from Deck rows, not precomputed).
-  prevShare?: number; // metaShare in the immediately-preceding equal window (trend)
+  prevShare?: number;
   conversion?: Conversion;
-}
-
-// SQL-safe `IN (...)` clause from the fixed source-group constants (not user input).
-function sourceSql(source: SourceFilter): string {
-  if (source === "all") return "";
-  return `AND t.source IN (${SOURCE_GROUP_MEMBERS[source].map((s) => `'${s}'`).join(",")})`;
-}
-
-/**
- * Top-8 / Top-32 conversion per archetype, computed live. Only entries from events
- * that published standings (rank not null) and were large enough that the cut is
- * selective count toward the denominator — 5-0 league dumps and tiny events do not.
- * Top-8 over events >= 16 players; Top-32 over events >= 64.
- */
-export async function getConversionMap(
-  format: Format,
-  windowDays: number,
-  source: SourceFilter,
-): Promise<Map<string, Conversion>> {
-  const anchor = await anchorDateForFormat(format);
-  if (!anchor) return new Map();
-  const cutoff = new Date(anchor.getTime() - windowDays * 86_400_000);
-  const rows = await prisma.$queryRawUnsafe<
-    { archetype: string | null; top8: number; elig8: number; top32: number; elig32: number }[]
-  >(
-    `SELECT d.archetype,
-        count(*) FILTER (WHERE d.rank IS NOT NULL AND t."deckCount" >= 16)::int AS elig8,
-        count(*) FILTER (WHERE d.rank <= 8 AND t."deckCount" >= 16)::int AS top8,
-        count(*) FILTER (WHERE d.rank IS NOT NULL AND t."deckCount" >= 64)::int AS elig32,
-        count(*) FILTER (WHERE d.rank <= 32 AND t."deckCount" >= 64)::int AS top32
-     FROM "Deck" d JOIN "Tournament" t ON t.id = d."tournamentId"
-     WHERE d.format = $1 AND d.date >= $2 ${sourceSql(source)}
-     GROUP BY d.archetype`,
-    format,
-    cutoff,
-  );
-  const m = new Map<string, Conversion>();
-  for (const r of rows) {
-    if (r.archetype) m.set(r.archetype, { top8: r.top8, elig8: r.elig8, top32: r.top32, elig32: r.elig32 });
-  }
-  return m;
-}
-
-/** Per-archetype meta share in the window immediately before the current one (for the trend). */
-export async function getPrevShareMap(
-  format: Format,
-  windowDays: number,
-  source: SourceFilter,
-): Promise<Map<string, number>> {
-  const anchor = await anchorDateForFormat(format);
-  if (!anchor) return new Map();
-  const cutoff = new Date(anchor.getTime() - windowDays * 86_400_000);
-  const prevCutoff = new Date(cutoff.getTime() - windowDays * 86_400_000);
-  const rows = await prisma.$queryRawUnsafe<{ archetype: string | null; n: number }[]>(
-    `SELECT d.archetype, count(*)::int AS n
-     FROM "Deck" d JOIN "Tournament" t ON t.id = d."tournamentId"
-     WHERE d.format = $1 AND d.date >= $2 AND d.date < $3 ${sourceSql(source)}
-     GROUP BY d.archetype`,
-    format,
-    prevCutoff,
-    cutoff,
-  );
-  const total = rows.reduce((s, r) => s + r.n, 0);
-  const m = new Map<string, number>();
-  if (total > 0) for (const r of rows) if (r.archetype) m.set(r.archetype, r.n / total);
-  return m;
-}
-
-export interface TimelinePoint {
-  week: string; // ISO date of the week start
-  n: number; // archetype decks that week
-  total: number; // all format decks that week
-  top10: number; // decks from the format's top-10 archetypes that week
-}
-
-/**
- * Weekly deck counts for one archetype over the last ~52 weeks, plus two
- * denominators: the whole field (`total`) and just the top-10 archetypes
- * (`top10`). The chart toggles which denominator it divides by.
- */
-export async function getArchetypeTimeline(
-  format: Format,
-  archetype: string,
-  source: SourceFilter,
-): Promise<TimelinePoint[]> {
-  const anchor = await anchorDateForFormat(format);
-  if (!anchor) return [];
-  const start = new Date(anchor.getTime() - 364 * 86_400_000);
-
-  // Top-10 archetypes over the chart range (from the precomputed 365-day stats).
-  const top = await prisma.archetypeStat.findMany({
-    where: { format, windowDays: 365, source },
-    orderBy: { deckCount: "desc" },
-    take: 10,
-    select: { archetype: true },
-  });
-  // Names come from our own DB; single quotes are doubled so apostrophe'd names are safe.
-  const inList = top.length ? top.map((t) => `'${t.archetype.replace(/'/g, "''")}'`).join(",") : "''";
-
-  const rows = await prisma.$queryRawUnsafe<{ week: Date; n: number; total: number; top10: number }[]>(
-    `SELECT date_trunc('week', d.date) AS week,
-        count(*) FILTER (WHERE d.archetype = $3)::int AS n,
-        count(*)::int AS total,
-        count(*) FILTER (WHERE d.archetype IN (${inList}))::int AS top10
-     FROM "Deck" d JOIN "Tournament" t ON t.id = d."tournamentId"
-     WHERE d.format = $1 AND d.date >= $2 ${sourceSql(source)}
-     GROUP BY week ORDER BY week`,
-    format,
-    start,
-    archetype,
-  );
-  return rows
-    .filter((r) => r.total > 0)
-    .map((r) => ({
-      week: new Date(r.week).toISOString().slice(0, 10),
-      n: r.n,
-      total: r.total,
-      top10: r.top10,
-    }));
-}
-
-export interface BanMarker {
-  date: string; // YYYY-MM-DD
-  label: string;
-  affectsFormat: boolean; // did THIS format's legal cards actually change on this date?
-}
-
-/**
- * B&R markers for a format's timeline. A Banned & Restricted announcement reshapes
- * the competitive landscape even when it doesn't touch this exact format, so we
- * surface EVERY announcement date in the window — curated history plus
- * auto-detected BanEvents, across all formats — and flag whether the viewed
- * format itself changed. The chart draws format-affecting dates in amber and the
- * rest in a muted tone. Falls back to curated-only if BanEvent isn't migrated yet.
- */
-export async function getBanMarkers(format: Format): Promise<BanMarker[]> {
-  // date -> (format -> labels of what changed for that format that day)
-  const byDate = new Map<string, Map<Format, string[]>>();
-  const add = (date: string, f: Format, label: string) => {
-    if (!byDate.has(date)) byDate.set(date, new Map());
-    const perFmt = byDate.get(date)!;
-    perFmt.set(f, [...(perFmt.get(f) ?? []), label]);
-  };
-
-  for (const f of FORMATS) for (const b of BANS[f]) add(b.date, f, b.label);
-
-  try {
-    const rows = await prisma.banEvent.findMany({ orderBy: { date: "asc" } });
-    for (const r of rows) add(r.date.toISOString().slice(0, 10), r.format as Format, `${r.card} ${r.action}`);
-  } catch {
-    // BanEvent table not present yet — curated history still covers all dates.
-  }
-
-  return [...byDate.entries()]
-    .map(([date, perFmt]) => {
-      const here = perFmt.get(format) ?? [];
-      const others = [...perFmt.keys()].filter((f) => f !== format);
-      const label = here.length > 0 ? here.join(", ") : `No ${format} changes — ${others.join(", ")} updated`;
-      return { date, label, affectsFormat: here.length > 0 };
-    })
-    .sort((a, b) => a.date.localeCompare(b.date));
-}
-
-function toRow(s: {
-  archetype: string;
-  colorName: string | null;
-  deckCount: number;
-  metaShare: number;
-  winRate: number;
-  matchWins: number;
-  matchLosses: number;
-  matchDraws: number;
-}): ArchetypeRow {
-  return {
-    archetype: s.archetype,
-    slug: slugify(s.archetype),
-    colorName: s.colorName,
-    deckCount: s.deckCount,
-    metaShare: s.metaShare,
-    winRate: s.winRate,
-    sampleMatches: s.matchWins + s.matchLosses + s.matchDraws,
-  };
 }
 
 export interface FormatSummary {
@@ -238,53 +50,10 @@ export interface FormatSummary {
   top: ArchetypeRow[];
 }
 
-/** Home-page snapshot for every tracked format (using the default window). */
-export async function getFormatSummaries(): Promise<FormatSummary[]> {
-  return Promise.all(
-    FORMATS.map(async (format) => {
-      const [stats, latest, prevMap] = await Promise.all([
-        prisma.archetypeStat.findMany({
-          where: { format, windowDays: DEFAULT_WINDOW_DAYS, source: DEFAULT_SOURCE },
-          orderBy: { deckCount: "desc" },
-        }),
-        prisma.deck.findFirst({ where: { format }, orderBy: { date: "desc" }, select: { date: true } }),
-        getPrevShareMap(format, DEFAULT_WINDOW_DAYS, DEFAULT_SOURCE),
-      ]);
-      return {
-        format,
-        decks: stats.reduce((n, s) => n + s.deckCount, 0),
-        archetypes: stats.length,
-        latest: latest?.date ?? null,
-        top: stats.slice(0, 4).map((s) => ({ ...toRow(s), prevShare: prevMap.get(s.archetype) })),
-      };
-    }),
-  );
-}
-
-/** When the stats were last recomputed — i.e. when the site's data last refreshed. */
-export async function getLastRefresh(): Promise<Date | null> {
-  const row = await prisma.archetypeStat.findFirst({ orderBy: { updatedAt: "desc" }, select: { updatedAt: true } });
-  return row?.updatedAt ?? null;
-}
-
 export interface MetaBreakdown {
   rows: ArchetypeRow[];
   totalDecks: number;
   latest: Date | null;
-}
-
-export async function getMetaBreakdown(format: Format, windowDays: number, source: SourceFilter): Promise<MetaBreakdown> {
-  const [stats, latest, convMap, prevMap] = await Promise.all([
-    prisma.archetypeStat.findMany({ where: { format, windowDays, source }, orderBy: { deckCount: "desc" } }),
-    prisma.deck.findFirst({ where: { format, ...sourceFilter(source) }, orderBy: { date: "desc" }, select: { date: true } }),
-    getConversionMap(format, windowDays, source),
-    getPrevShareMap(format, windowDays, source),
-  ]);
-  return {
-    rows: stats.map((s) => ({ ...toRow(s), prevShare: prevMap.get(s.archetype), conversion: convMap.get(s.archetype) })),
-    totalDecks: stats.reduce((n, s) => n + s.deckCount, 0),
-    latest: latest?.date ?? null,
-  };
 }
 
 export interface MatrixCell {
@@ -300,27 +69,6 @@ export interface MatrixCell {
 export interface MatchupMatrix {
   archetypes: { archetype: string; slug: string; colorName: string | null; deckCount: number }[];
   cell: (a: string, b: string) => MatrixCell | null;
-}
-
-/** Top-N head-to-head matrix for a format (only pairing-bearing data). */
-export async function getMatchupMatrix(format: Format, windowDays: number, source: SourceFilter, topN = 12): Promise<MatchupMatrix> {
-  const top = await prisma.archetypeStat.findMany({
-    where: { format, windowDays, source },
-    orderBy: { deckCount: "desc" },
-    take: topN,
-  });
-  const names = new Set(top.map((t) => t.archetype));
-  const cells = await prisma.matchupStat.findMany({
-    where: { format, windowDays, source, archetypeA: { in: [...names] }, archetypeB: { in: [...names] } },
-  });
-  const lookup = new Map(cells.map((c) => [`${c.archetypeA}|${c.archetypeB}`, c]));
-  return {
-    archetypes: top.map((t) => ({ archetype: t.archetype, slug: slugify(t.archetype), colorName: t.colorName, deckCount: t.deckCount })),
-    cell: (a, b) => {
-      const c = lookup.get(`${a}|${b}`);
-      return c ? { winRateA: c.winRateA, matches: c.matches, winsA: c.winsA, winsB: c.winsB, draws: c.draws, ciLow: c.ciLow, ciHigh: c.ciHigh } : null;
-    },
-  };
 }
 
 export interface DeckView {
@@ -345,6 +93,13 @@ export interface MatchupRow extends MatrixCell {
   slug: string;
 }
 
+export interface TimelinePoint {
+  week: string;
+  n: number;
+  total: number;
+  top10: number;
+}
+
 export interface ArchetypeDetail {
   format: Format;
   archetype: string;
@@ -355,92 +110,10 @@ export interface ArchetypeDetail {
   timeline: TimelinePoint[];
 }
 
-/** Resolve a format's archetype by slug across any window (names are stable). */
-async function resolveArchetypeName(format: Format, slug: string): Promise<string | null> {
-  const all = await prisma.archetypeStat.findMany({ where: { format }, select: { archetype: true }, distinct: ["archetype"] });
-  return all.find((a) => slugify(a.archetype) === slug)?.archetype ?? null;
-}
-
-export async function getArchetypeDetail(
-  format: Format,
-  windowDays: number,
-  source: SourceFilter,
-  slug: string,
-): Promise<ArchetypeDetail | null> {
-  const archetype = await resolveArchetypeName(format, slug);
-  if (!archetype) return null;
-
-  const statRow = await prisma.archetypeStat.findUnique({
-    where: { format_windowDays_source_archetype: { format, windowDays, source, archetype } },
-  });
-
-  // Pick the 5 decks to display up front (most recent first) so we only hydrate
-  // those heavy card-list rows — not 60 — which is the bulk of this page's cost.
-  // Older decks are slimmed to '[]' to bound storage, so filter to boarded here.
-  const [matchupRows, convMap, prevMap, timeline, boardedIds] = await Promise.all([
-    prisma.matchupStat.findMany({
-      where: { format, windowDays, source, archetypeA: archetype },
-      orderBy: { matches: "desc" },
-    }),
-    getConversionMap(format, windowDays, source),
-    getPrevShareMap(format, windowDays, source),
-    getArchetypeTimeline(format, archetype, source),
-    prisma.$queryRawUnsafe<{ id: string }[]>(
-      `SELECT d.id FROM "Deck" d JOIN "Tournament" t ON t.id = d."tournamentId"
-       WHERE d.format = $1 AND d.archetype = $2 AND d.mainboard <> '[]'::jsonb ${sourceSql(source)}
-       ORDER BY d.date DESC, (d.rank IS NULL), d.rank ASC
-       LIMIT 5`,
-      format,
-      archetype,
-    ),
-  ]);
-
-  const ids = boardedIds.map((r) => r.id);
-  const deckRows = ids.length
-    ? await prisma.deck.findMany({ where: { id: { in: ids } }, include: { tournament: true } })
-    : [];
-  const orderById = new Map(ids.map((id, i) => [id, i]));
-  deckRows.sort((a, b) => (orderById.get(a.id) ?? 0) - (orderById.get(b.id) ?? 0));
-
-  return {
-    format,
-    archetype,
-    colorName: statRow?.colorName ?? deckRows[0]?.colorName ?? null,
-    stat: statRow ? { ...toRow(statRow), prevShare: prevMap.get(archetype), conversion: convMap.get(archetype) } : null,
-    timeline,
-    matchups: matchupRows.map((m) => ({
-      opponent: m.archetypeB,
-      slug: slugify(m.archetypeB),
-      winRateA: m.winRateA,
-      matches: m.matches,
-      winsA: m.winsA,
-      winsB: m.winsB,
-      draws: m.draws,
-      ciLow: m.ciLow,
-      ciHigh: m.ciHigh,
-    })),
-    decks: deckRows.map((d) => ({
-      id: d.id,
-      player: d.player,
-      result: d.result,
-      rank: d.rank,
-      anchorUri: d.anchorUri,
-      wins: d.wins,
-      losses: d.losses,
-      draws: d.draws,
-      mainboard: d.mainboard as unknown as BoardCard[],
-      sideboard: d.sideboard as unknown as BoardCard[],
-      tournamentName: d.tournament.name,
-      tournamentDate: d.tournament.date,
-      tournamentUri: d.tournament.uri,
-      source: d.tournament.source,
-    })),
-  };
-}
-
-export async function getCardMap(names: string[]) {
-  const cards = await prisma.card.findMany({ where: { name: { in: [...new Set(names)] } } });
-  return new Map(cards.map((c) => [c.name, c]));
+export interface BanMarker {
+  date: string;
+  label: string;
+  affectsFormat: boolean;
 }
 
 export interface VideoView {
@@ -451,17 +124,248 @@ export interface VideoView {
   publishedAt: Date | null;
 }
 
-export async function getArchetypeVideos(format: Format, archetype: string): Promise<VideoView[]> {
-  const vids = await prisma.video.findMany({
-    where: { format, archetype },
-    orderBy: { publishedAt: "desc" },
-    take: 8,
+function requireSnapshot(): Snapshot {
+  const loaded = loadPublished();
+  if (!loaded.ok) throw new Error(loaded.reason);
+  return loaded.snapshot;
+}
+
+function formatSnap(snapshot: Snapshot, format: Format): FormatSnap | undefined {
+  return snapshot.formats.find((f) => f.format === format);
+}
+
+function toRow(row: SnapRow): ArchetypeRow {
+  return {
+    archetype: row.archetype,
+    slug: slugify(row.archetype),
+    colorName: row.colorName,
+    deckCount: row.deckCount,
+    metaShare: row.metaShare,
+    winRate: row.winRate,
+    sampleMatches: row.matchWins + row.matchLosses + row.matchDraws,
+    prevShare: row.prevShare,
+    conversion: row.conversion,
+  };
+}
+
+function asDate(value: string | null | undefined): Date | null {
+  if (!value) return null;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+export function formatSummaries(snapshot: Snapshot): FormatSummary[] {
+  return FORMATS.map((format) => {
+    const snap = formatSnap(snapshot, format);
+    const slice = snap?.slices[sliceKey(DEFAULT_WINDOW_DAYS, DEFAULT_SOURCE)];
+    const rows = slice?.rows ?? [];
+    return {
+      format,
+      decks: slice?.totalDecks ?? 0,
+      archetypes: rows.length,
+      latest: asDate(snap?.latest),
+      top: rows.slice(0, 4).map(toRow),
+    };
   });
-  return vids.map((v) => ({
-    id: v.id,
-    title: v.title,
-    channelTitle: v.channelTitle,
-    thumbnail: v.thumbnail,
-    publishedAt: v.publishedAt,
+}
+
+export async function getFormatSummaries(): Promise<FormatSummary[]> {
+  return formatSummaries(requireSnapshot());
+}
+
+export function lastRefresh(snapshot: Snapshot): Date | null {
+  return asDate(snapshot.publishedAt);
+}
+
+export async function getLastRefresh(): Promise<Date | null> {
+  return lastRefresh(requireSnapshot());
+}
+
+export function metaBreakdown(snapshot: Snapshot, format: Format, windowDays: number, source: SourceFilter): MetaBreakdown {
+  const snap = formatSnap(snapshot, format);
+  const slice = snap?.slices[sliceKey(windowDays, source)];
+  return {
+    rows: (slice?.rows ?? []).map(toRow),
+    totalDecks: slice?.totalDecks ?? 0,
+    latest: asDate(snap?.latestBySource[source]),
+  };
+}
+
+export async function getMetaBreakdown(format: Format, windowDays: number, source: SourceFilter): Promise<MetaBreakdown> {
+  return metaBreakdown(requireSnapshot(), format, windowDays, source);
+}
+
+function cellOf(matchup: SnapMatchup): MatrixCell {
+  return {
+    winRateA: matchup.winRateA,
+    matches: matchup.matches,
+    winsA: matchup.winsA,
+    winsB: matchup.winsB,
+    draws: matchup.draws,
+    ciLow: matchup.ciLow,
+    ciHigh: matchup.ciHigh,
+  };
+}
+
+export function matchupMatrix(snapshot: Snapshot, format: Format, windowDays: number, source: SourceFilter, topN = 12): MatchupMatrix {
+  const slice = formatSnap(snapshot, format)?.slices[sliceKey(windowDays, source)];
+  const top = (slice?.rows ?? []).slice(0, topN);
+  const names = new Set(top.map((row) => row.archetype));
+  const lookup = new Map<string, SnapMatchup>();
+  for (const matchup of slice?.matchups ?? []) {
+    if (names.has(matchup.archetypeA) && names.has(matchup.archetypeB)) {
+      lookup.set(`${matchup.archetypeA}|${matchup.archetypeB}`, matchup);
+    }
+  }
+  return {
+    archetypes: top.map((row) => ({
+      archetype: row.archetype,
+      slug: slugify(row.archetype),
+      colorName: row.colorName,
+      deckCount: row.deckCount,
+    })),
+    cell: (a, b) => {
+      const found = lookup.get(`${a}|${b}`);
+      return found ? cellOf(found) : null;
+    },
+  };
+}
+
+export async function getMatchupMatrix(format: Format, windowDays: number, source: SourceFilter, topN = 12): Promise<MatchupMatrix> {
+  return matchupMatrix(requireSnapshot(), format, windowDays, source, topN);
+}
+
+function archetypeNames(snap: FormatSnap | undefined): string[] {
+  const names = new Set<string>();
+  if (!snap) return [];
+  for (const slice of Object.values(snap.slices)) for (const row of slice.rows) names.add(row.archetype);
+  for (const lists of Object.values(snap.lists)) for (const name of Object.keys(lists)) names.add(name);
+  return [...names];
+}
+
+export function archetypeDetail(
+  snapshot: Snapshot,
+  format: Format,
+  windowDays: number,
+  source: SourceFilter,
+  slug: string,
+): ArchetypeDetail | null {
+  const snap = formatSnap(snapshot, format);
+  const archetype = archetypeNames(snap).find((name) => slugify(name) === slug);
+  if (!archetype || !snap) return null;
+  const slice = snap.slices[sliceKey(windowDays, source)];
+  const row = slice?.rows.find((r) => r.archetype === archetype) ?? null;
+  const weekly = snap.weekly[source];
+  const top10 = new Set(weekly?.top10 ?? []);
+  const timeline: TimelinePoint[] = (weekly?.weeks ?? []).map((week) => ({
+    week: week.week,
+    n: week.counts[archetype] ?? 0,
+    total: week.total,
+    top10: [...top10].reduce((sum, name) => sum + (week.counts[name] ?? 0), 0),
   }));
+  const decks = (snap.lists[source]?.[archetype] ?? []).map((deck, index) => ({
+    id: `${format}:${source}:${archetype}:${index}`,
+    player: deck.player,
+    result: deck.result,
+    rank: deck.rank,
+    anchorUri: deck.anchorUri,
+    wins: 0,
+    losses: 0,
+    draws: 0,
+    mainboard: deck.mainboard,
+    sideboard: deck.sideboard,
+    tournamentName: deck.tournamentName,
+    tournamentDate: new Date(deck.tournamentDate),
+    tournamentUri: deck.tournamentUri,
+    source: deck.source,
+  }));
+  const matchups = (slice?.matchups ?? [])
+    .filter((matchup) => matchup.archetypeA === archetype)
+    .map((matchup) => ({
+      opponent: matchup.archetypeB,
+      slug: slugify(matchup.archetypeB),
+      ...cellOf(matchup),
+    }))
+    .sort((a, b) => b.matches - a.matches || a.opponent.localeCompare(b.opponent));
+  return {
+    format,
+    archetype,
+    colorName: row?.colorName ?? null,
+    stat: row ? toRow(row) : null,
+    matchups,
+    decks,
+    timeline,
+  };
+}
+
+export async function getArchetypeDetail(
+  format: Format,
+  windowDays: number,
+  source: SourceFilter,
+  slug: string,
+): Promise<ArchetypeDetail | null> {
+  return archetypeDetail(requireSnapshot(), format, windowDays, source, slug);
+}
+
+export function cardMap(snapshot: Snapshot, names: string[]) {
+  const map = new Map<string, { imageUrl: string | null; typeLine: string | null; manaCost: string | null; priceUsd: string | null }>();
+  for (const name of names) {
+    const card = snapshot.cards[name];
+    if (!card) continue;
+    map.set(name, { imageUrl: card.imageUrl, typeLine: card.typeLine, manaCost: null, priceUsd: card.priceUsd });
+  }
+  return map;
+}
+
+export async function getCardMap(names: string[]) {
+  return cardMap(requireSnapshot(), names);
+}
+
+export function archetypeVideos(snapshot: Snapshot, format: Format, archetype: string): VideoView[] {
+  return snapshot.videos
+    .filter((video) => video.format === format && video.archetype === archetype)
+    .sort((a, b) => (b.publishedAt ?? "").localeCompare(a.publishedAt ?? ""))
+    .slice(0, 8)
+    .map((video) => ({
+      id: video.id,
+      title: video.title,
+      channelTitle: video.channelTitle,
+      thumbnail: video.thumbnail,
+      publishedAt: asDate(video.publishedAt),
+    }));
+}
+
+export async function getArchetypeVideos(format: Format, archetype: string): Promise<VideoView[]> {
+  return archetypeVideos(requireSnapshot(), format, archetype);
+}
+
+export function banMarkers(snapshot: Snapshot, format: Format): BanMarker[] {
+  const byDate = new Map<string, Map<Format, string[]>>();
+  const add = (date: string, f: Format, label: string) => {
+    if (!byDate.has(date)) byDate.set(date, new Map());
+    const perFmt = byDate.get(date)!;
+    perFmt.set(f, [...(perFmt.get(f) ?? []), label]);
+  };
+  for (const f of FORMATS) for (const ban of BANS[f]) add(ban.date, f, ban.label);
+  for (const event of snapshot.banEvents) {
+    if (!(FORMATS as readonly string[]).includes(event.format)) continue;
+    add(event.date.slice(0, 10), event.format as Format, `${event.card} ${event.action}`);
+  }
+  return [...byDate.entries()]
+    .map(([date, perFmt]) => {
+      const here = perFmt.get(format) ?? [];
+      const others = [...perFmt.keys()].filter((f) => f !== format);
+      const label = here.length > 0 ? here.join(", ") : `No ${format} changes — ${others.join(", ")} updated`;
+      return { date, label, affectsFormat: here.length > 0 };
+    })
+    .sort((a, b) => a.date.localeCompare(b.date));
+}
+
+export async function getBanMarkers(format: Format): Promise<BanMarker[]> {
+  return banMarkers(requireSnapshot(), format);
+}
+
+export function snapshotHasArchetype(snapshot: Snapshot, format: Format, archetype: string): boolean {
+  const snap = formatSnap(snapshot, format);
+  return archetypeNames(snap).includes(archetype);
 }
