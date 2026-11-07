@@ -68,6 +68,8 @@ export interface FactExtras {
   videoRefreshedOn?: Record<string, string>;
   /** UTC day of the last search attempt, including failures. Counts toward the daily cap. */
   videoAttemptedOn?: Record<string, string>;
+  /** event id → player → UTC day the upstream list was confirmed absent. Skips repeat fetches. */
+  boardEmptyOn?: Record<string, Record<string, string>>;
   banEvents: StoredBanEvent[];
   /** Last Scryfall banned/restricted lists, so a later sync can diff. Not shown in the UI. */
   banSnapshot: Record<string, { banned: string[]; restricted: string[] }>;
@@ -155,8 +157,14 @@ export interface SnapshotCoverage {
   oldestFolderDate: string | null;
   /** Days from the newest cache folder to the publish clock. Null when no folders were found. */
   cacheLagDays: number | null;
-  /** Same-day MTGO scrape. "unavailable" is a structural failure published only with an explicit override. */
-  mtgo: "ok" | "skipped" | "unavailable";
+  /**
+   * Same-day MTGO scrape. "unavailable" is a structural failure and blocks publish
+   * unless explicitly overridden. "partial" means some events were missed; the
+   * snapshot still publishes and those events keep any previously stored facts.
+   */
+  mtgo: "ok" | "skipped" | "unavailable" | "partial";
+  /** Events skipped by this scrape. Present when mtgo is "partial". */
+  mtgoMissed?: number;
 }
 
 export interface SnapshotBody {
