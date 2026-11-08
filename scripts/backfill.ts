@@ -303,8 +303,8 @@ async function main() {
       oldestFolderDate: span.oldest,
       cacheLagDays: lagDays(span.newest, now),
       mtgo,
-      mtgoMissed: mtgo === "partial" ? mtgoMissed : undefined,
     };
+    if (mtgo === "partial") coverage.mtgoMissed = mtgoMissed;
     if (coverage.cacheLagDays != null && coverage.cacheLagDays > 2) {
       log(`  ! newest cache folder is ${coverage.cacheLagDays} days behind ${now.toISOString().slice(0, 10)}`);
     }

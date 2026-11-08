@@ -21,11 +21,17 @@ export function loadPublished(file = SNAPSHOT_PATH): LoadedSnapshot {
   const mtimeMs = fs.statSync(file).mtimeMs;
   const hit = cached.get(file);
   if (hit && hit.mtimeMs === mtimeMs) return { ok: true, snapshot: hit.snapshot };
+  let text: string;
+  try {
+    text = fs.readFileSync(file, "utf8");
+  } catch (error) {
+    return { ok: false, reason: `data/published/snapshot.json could not be read (${(error as Error).message}).` };
+  }
   let parsed: Snapshot;
   try {
-    parsed = JSON.parse(fs.readFileSync(file, "utf8")) as Snapshot;
-  } catch {
-    return { ok: false, reason: "data/published/snapshot.json could not be parsed." };
+    parsed = JSON.parse(text) as Snapshot;
+  } catch (error) {
+    return { ok: false, reason: `data/published/snapshot.json could not be parsed (${(error as Error).message}).` };
   }
   if (parsed.schemaVersion !== 1 || parsed.status !== "ok") {
     return {
