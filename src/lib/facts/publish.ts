@@ -1,3 +1,4 @@
+import fs from "node:fs";
 import { fillKeptBoards, type BoardFetch } from "./boards";
 import { selectKeptDecks, buildSnapshotBody } from "./compute";
 import { FactStore } from "./store";
@@ -66,7 +67,11 @@ export async function publishSnapshot(store: FactStore, opts: PublishOptions): P
   );
 
   const extrasAfter = store.readExtras();
+  const snapshotExists = fs.existsSync(store.snapshotFile);
   const previous = store.readSnapshot();
+  if (snapshotExists && !previous) {
+    log("  ! previous snapshot.json is not valid JSON; replacing it. Event facts are left in place.");
+  }
   let cards = opts.cards ?? previous?.cards ?? {};
   if (opts.prepareCards) cards = await opts.prepareCards(filled.boards, cards);
   const body: SnapshotBody = buildSnapshotBody(

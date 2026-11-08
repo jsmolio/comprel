@@ -7,7 +7,8 @@ import { anchorMs } from "../src/lib/facts/compute";
 import { classifyFetched } from "../src/lib/facts/classify-guard";
 import { DAY_MS, historyCutoffMs } from "../src/lib/facts/horizon";
 import { publishSnapshot } from "../src/lib/facts/publish";
-import { FactStore } from "../src/lib/facts/store";
+import { FactStore, stableStringify } from "../src/lib/facts/store";
+import type { SnapshotCoverage } from "../src/lib/facts/types";
 import type { FactEvent } from "../src/lib/facts/types";
 import { buildSnapshotBody } from "../src/lib/facts/compute";
 
@@ -112,6 +113,51 @@ test("republishing identical facts does not rewrite the snapshot", async () => {
   const second = await publishSnapshot(store, { classifierVersion: "v1", now: new Date("2026-12-01T00:00:00.000Z") });
   assert.equal(second.changed, false);
   assert.equal(store.readSnapshot()?.publishedAt, "2026-11-02T00:00:00.000Z");
+});
+
+test("an undefined coverage field is omitted and the written snapshot still parses", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "comprel-undef-"));
+  const store = new FactStore(root);
+  const body = buildSnapshotBody([], new Map(), { videos: [], banEvents: [], cards: {} }, "v");
+  const coverage: SnapshotCoverage = {
+    complete: true,
+    requestedDays: 5,
+    discovered: 1,
+    ingested: 1,
+    failed: 0,
+    emptyFiles: 0,
+    newestFolderDate: "2026-11-07",
+    oldestFolderDate: "2026-11-07",
+    cacheLagDays: 1,
+    mtgo: "ok",
+    mtgoMissed: undefined,
+  };
+  body.coverage = coverage;
+  store.writeSnapshot(body, "2026-11-08T13:00:16.044Z");
+  const text = fs.readFileSync(store.snapshotFile, "utf8");
+  assert.equal(text.includes("undefined"), false);
+  const parsed = JSON.parse(text) as { coverage: { mtgo: string } };
+  assert.equal(parsed.coverage.mtgo, "ok");
+  assert.equal("mtgoMissed" in parsed.coverage, false);
+  assert.equal(stableStringify({ a: 1, b: undefined }), '{"a":1}');
+  assert.throws(() => stableStringify(Number.NaN), /non-finite/);
+});
+
+test("unreadable snapshot JSON can be replaced, and a refused write keeps the previous file", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "comprel-badjson-"));
+  const store = new FactStore(root);
+  const body = buildSnapshotBody([], new Map(), { videos: [], banEvents: [], cards: {} }, "v");
+  fs.mkdirSync(path.dirname(store.snapshotFile), { recursive: true });
+  fs.writeFileSync(store.snapshotFile, '{"coverage":{"mtgo":"ok","mtgoMissed":undefined}}\n');
+  assert.equal(store.readSnapshot(), null);
+  store.writeSnapshot(body, "2026-11-08T13:00:16.044Z");
+  const replaced = JSON.parse(fs.readFileSync(store.snapshotFile, "utf8")) as { publishedAt: string; status: string };
+  assert.equal(replaced.status, "ok");
+  assert.equal(replaced.publishedAt, "2026-11-08T13:00:16.044Z");
+  assert.equal(fs.readFileSync(store.snapshotFile, "utf8").includes("undefined"), false);
+  assert.throws(() => store.writeSnapshot({ ...body, eventCount: Number.NaN }, "2026-11-09T00:00:00.000Z"), /non-finite/);
+  const kept = JSON.parse(fs.readFileSync(store.snapshotFile, "utf8")) as { publishedAt: string };
+  assert.equal(kept.publishedAt, "2026-11-08T13:00:16.044Z");
 });
 
 test("missing fetch does not reclassify pruned boards as Unknown", () => {

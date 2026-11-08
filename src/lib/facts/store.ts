@@ -7,10 +7,24 @@ import type { FactEvent, FactExtras, PlayerBoard, Snapshot, SnapshotBody } from 
 import type { Format } from "../types";
 
 export function stableStringify(value: unknown): string {
-  if (value === null || typeof value !== "object") return JSON.stringify(value);
-  if (Array.isArray(value)) return `[${value.map((item) => stableStringify(item)).join(",")}]`;
+  if (typeof value === "number" && !Number.isFinite(value)) {
+    throw new Error("stableStringify cannot encode a non-finite number");
+  }
+  if (typeof value === "bigint" || typeof value === "function" || typeof value === "symbol") {
+    throw new Error(`stableStringify cannot encode ${typeof value}`);
+  }
+  if (value === undefined) throw new Error("stableStringify cannot encode undefined");
+  if (value === null || typeof value !== "object") {
+    const encoded = JSON.stringify(value);
+    if (encoded === undefined) throw new Error("stableStringify cannot encode this value");
+    return encoded;
+  }
+  if (Array.isArray(value)) {
+    return `[${value.map((item) => (item === undefined ? "null" : stableStringify(item))).join(",")}]`;
+  }
   const obj = value as Record<string, unknown>;
   return `{${Object.keys(obj)
+    .filter((key) => obj[key] !== undefined)
     .sort()
     .map((key) => `${JSON.stringify(key)}:${stableStringify(obj[key])}`)
     .join(",")}}`;
@@ -238,7 +252,18 @@ export class FactStore {
 
   readSnapshot(): Snapshot | null {
     if (!fs.existsSync(this.snapshotFile)) return null;
-    return JSON.parse(fs.readFileSync(this.snapshotFile, "utf8")) as Snapshot;
+    let text: string;
+    try {
+      text = fs.readFileSync(this.snapshotFile, "utf8");
+    } catch (error) {
+      throw new Error(`Could not read ${this.snapshotFile} (${(error as Error).message}).`);
+    }
+    try {
+      return JSON.parse(text) as Snapshot;
+    } catch (error) {
+      if (error instanceof SyntaxError) return null;
+      throw error;
+    }
   }
 
   /**
@@ -251,9 +276,21 @@ export class FactStore {
     if (previous && stableStringify(stripPublishedAt(previous)) === stableStringify(body)) {
       return { changed: false };
     }
+    const text = `${stableStringify(next)}\n`;
+    let parsed: Snapshot;
+    try {
+      parsed = JSON.parse(text) as Snapshot;
+    } catch (error) {
+      throw new Error(`Refusing to publish a snapshot that is not valid JSON (${(error as Error).message}).`);
+    }
+    if (parsed.schemaVersion !== 1 || parsed.status !== "ok" || typeof parsed.publishedAt !== "string") {
+      throw new Error(
+        `Refusing to publish a snapshot that fails the schema check (schemaVersion=${String(parsed.schemaVersion)}, status=${String(parsed.status)}).`,
+      );
+    }
     fs.mkdirSync(path.dirname(this.snapshotFile), { recursive: true });
     const tmp = `${this.snapshotFile}.${process.pid}.tmp`;
-    fs.writeFileSync(tmp, `${stableStringify(next)}\n`);
+    fs.writeFileSync(tmp, text);
     try {
       opts?.beforeRename?.();
       fs.renameSync(tmp, this.snapshotFile);
