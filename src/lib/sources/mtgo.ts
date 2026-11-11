@@ -198,8 +198,9 @@ export interface MtgoImportResult {
   /** Not requested. Separate from misses. */
   unattempted: MtgoUnattempted[];
   requests: number;
-  // True only for a real, actionable break (listing 404 = URL moved, or every
-  // attempted event failed). Per-event misses and an early budget stop are not structural.
+  // Listing 404, a listing with no decklist links, or every fetched page was a
+  // 200 whose decklist embed was missing. Timeouts, HTTP errors, and empty
+  // decklists are partial misses and do not block publish.
   structuralFailure: boolean;
 }
 
@@ -319,6 +320,11 @@ export async function importMtgo(
     return result;
   }
   const indexHtml = indexPage.html;
+  if (!/\/decklist\//i.test(indexHtml)) {
+    result.structuralFailure = true;
+    log("  ! MTGO listing returned 200 but no decklist links — the index markup changed");
+    return result;
+  }
   result.indexOk = true;
 
   const today = opts.today ?? new Date(clock()).toISOString().slice(0, 10);
@@ -410,8 +416,14 @@ export async function importMtgo(
     }
     await pause(60);
   }
-  // Every attempted event failed, and the loop was not cut short. Stored skips do not count.
-  if (stop === null && result.events + result.errors > 0 && result.events === 0) result.structuralFailure = true;
+  // Structure change: every page we fetched was a 200 with no usable embed.
+  // Timeouts, HTTP errors, and empty decklists stay partial so the cache import can publish.
+  const embedMissing =
+    stop === null &&
+    result.events === 0 &&
+    result.misses.length > 0 &&
+    result.misses.every((miss) => miss.reason === "parse");
+  if (embedMissing) result.structuralFailure = true;
   const byReason = new Map<string, number>();
   for (const item of result.misses) byReason.set(item.reason, (byReason.get(item.reason) ?? 0) + 1);
   const reasonText = [...byReason.entries()].map(([reason, n]) => `${reason} ${n}`).join(", ");

@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { decidePublish } from "../src/lib/facts/publish-policy";
 import { diagnoseMtgoHtml, importMtgo, mtgoEventUrl, prioritizeMtgoSlugs, type MtgoPageFetch } from "../src/lib/sources/mtgo";
 
 const day = new Date().toISOString().slice(0, 10);
@@ -234,4 +235,60 @@ test("the event request cap leaves the rest unattempted", async () => {
   assert.equal(result.unattempted[0]?.reason, "request-limit");
   assert.equal(result.unattempted[0]?.slug, second);
   assert.equal(result.structuralFailure, false);
+});
+
+test("timeouts and HTTP errors after skipping stored events stay partial and still publish", async () => {
+  const today = "2026-11-11";
+  const stored = `modern-league-${today}40001`;
+  const hung = `pioneer-league-${today}40002`;
+  const denied = `legacy-league-${today}40003`;
+  const result = await importMtgo({
+    days: 4,
+    today,
+    now: () => Date.parse(`${today}T12:00:00Z`),
+    sleep: async () => {},
+    known: (slug) => (slug === stored ? "lists" : "absent"),
+    fetchPage: async (url): Promise<MtgoPageFetch> => {
+      if (url.endsWith("/decklists")) return { kind: "ok", status: 200, html: indexHtml([stored, hung, denied]) };
+      if (url.endsWith(hung)) return { kind: "timeout" };
+      return { kind: "http", status: 503 };
+    },
+  });
+  assert.equal(result.skippedStored, 1);
+  assert.equal(result.events, 0);
+  assert.equal(result.errors, 2);
+  assert.equal(result.structuralFailure, false);
+  const mtgo = result.structuralFailure ? "unavailable" : "partial";
+  assert.equal(mtgo, "partial");
+  assert.equal(decidePublish({ discovered: 4, failed: 0, mtgo, allowIncompleteMtgo: false }).publish, true);
+});
+
+test("an index 404 still blocks publish", async () => {
+  const result = await importMtgo({
+    sleep: async () => {},
+    fetchPage: async () => ({ kind: "http", status: 404 }),
+  });
+  assert.equal(result.structuralFailure, true);
+  assert.equal(decidePublish({ discovered: 4, failed: 0, mtgo: "unavailable", allowIncompleteMtgo: false }).publish, false);
+});
+
+test("every 200 page missing the decklist embed is structural", async () => {
+  const today = "2026-11-11";
+  const first = `modern-league-${today}50001`;
+  const second = `pioneer-league-${today}50002`;
+  const result = await importMtgo({
+    days: 4,
+    today,
+    now: () => Date.parse(`${today}T12:00:00Z`),
+    sleep: async () => {},
+    fetchPage: async (url): Promise<MtgoPageFetch> => {
+      if (url.endsWith("/decklists")) return { kind: "ok", status: 200, html: indexHtml([first, second]) };
+      return { kind: "ok", status: 200, html: "<html>no decklist object</html>" };
+    },
+  });
+  assert.equal(result.events, 0);
+  assert.equal(result.errors, 2);
+  assert.ok(result.misses.every((miss) => miss.reason === "parse"));
+  assert.equal(result.structuralFailure, true);
+  assert.equal(decidePublish({ discovered: 4, failed: 0, mtgo: "unavailable", allowIncompleteMtgo: false }).publish, false);
 });

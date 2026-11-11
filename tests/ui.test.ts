@@ -143,12 +143,47 @@ test("the coverage banner separates misses from events the budget did not reques
     cacheLagDays: 0,
     mtgo: "partial" as const,
   };
-  const left = renderToStaticMarkup(createElement(CoverageNote, { coverage: { ...base, mtgoMissed: 0, mtgoUnattempted: 18 } }));
-  assert.match(left, /18/);
-  assert.match(left, /unattempted/);
+  const left = renderToStaticMarkup(
+    createElement(CoverageNote, {
+      coverage: {
+        ...base,
+        mtgoMissed: 0,
+        mtgoUnattempted: 19,
+        mtgoUnattemptedEvents: [
+          { slug: "a", url: "https://www.mtgo.com/decklist/a", reason: "budget" },
+          { slug: "b", url: "https://www.mtgo.com/decklist/b", reason: "request-limit" },
+        ],
+      },
+    }),
+  );
+  assert.match(left, /left 1 event unattempted/);
   assert.doesNotMatch(left, /missed/);
+  const capped = renderToStaticMarkup(
+    createElement(CoverageNote, {
+      coverage: {
+        ...base,
+        mtgoMissed: 0,
+        mtgoUnattempted: 3,
+        mtgoUnattemptedEvents: [{ slug: "c", url: "https://www.mtgo.com/decklist/c", reason: "request-limit" }],
+      },
+    }),
+  );
+  assert.doesNotMatch(capped, /unattempted/);
   const both = renderToStaticMarkup(
-    createElement(CoverageNote, { coverage: { ...base, mtgoMissed: 2, mtgoUnattempted: 4 } }),
+    createElement(CoverageNote, {
+      coverage: {
+        ...base,
+        mtgoMissed: 2,
+        mtgoUnattempted: 5,
+        mtgoUnattemptedEvents: [
+          { slug: "d", url: "https://www.mtgo.com/decklist/d", reason: "budget" },
+          { slug: "e", url: "https://www.mtgo.com/decklist/e", reason: "budget" },
+          { slug: "f", url: "https://www.mtgo.com/decklist/f", reason: "budget" },
+          { slug: "g", url: "https://www.mtgo.com/decklist/g", reason: "budget" },
+          { slug: "h", url: "https://www.mtgo.com/decklist/h", reason: "request-limit" },
+        ],
+      },
+    }),
   );
   assert.match(both, /missed 2/);
   assert.match(both, /left 4/);
