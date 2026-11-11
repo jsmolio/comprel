@@ -38,12 +38,17 @@ test("a refused publish does not advance the snapshot file", () => {
   assert.equal(store.readSnapshot()?.publishedAt, "2026-01-01T00:00:00.000Z");
 });
 
-test("scheduled workflow commits only after a successful backfill", () => {
+test("scheduled workflow commits a successful game without blocking on the other", () => {
   const yml = fs.readFileSync(".github/workflows/ingest.yml", "utf8");
   assert.doesNotMatch(yml, /code == ['"]2['"]|exit 2|code -eq 2/);
   assert.doesNotMatch(yml, /if:\s*always\(\)/);
-  const backfill = yml.indexOf("pnpm backfill --incremental");
+  assert.match(yml, /cron: "0 \*\/2 \* \* \*"/);
+  const magic = yml.indexOf("pnpm backfill --incremental");
+  const rift = yml.indexOf("pnpm backfill --incremental --game=riftbound");
   const commit = yml.indexOf("git push");
-  assert.ok(backfill > 0 && commit > backfill);
-  assert.match(yml, /non-zero backfill exit skips every later step/i);
+  assert.ok(magic > 0 && rift > magic && commit > rift);
+  assert.match(yml, /continue-on-error:\s*true/);
+  assert.match(yml, /Discard partial Magic data/);
+  assert.match(yml, /Discard partial Riftbound data/);
+  assert.match(yml, /Both game publishes failed/);
 });

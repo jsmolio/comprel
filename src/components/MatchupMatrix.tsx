@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import Link from "next/link";
 import type { MatchupMatrix as Matrix } from "@/lib/queries";
 import { colorNameToId } from "@/lib/archetype/colors";
@@ -11,11 +12,17 @@ export function MatchupMatrix({
   formatSlug,
   windowDays,
   source,
+  linkRoot,
+  extra,
+  renderIdentity,
 }: {
   matrix: Matrix;
   formatSlug: string;
   windowDays: number;
   source: string;
+  linkRoot?: string;
+  extra?: Record<string, string | undefined>;
+  renderIdentity?: (row: Matrix["archetypes"][number]) => ReactNode;
 }) {
   const archs = matrix.archetypes;
   if (archs.length < 2) {
@@ -41,11 +48,11 @@ export function MatchupMatrix({
               <tr key={row.archetype}>
                 <th className="sticky left-0 z-10 whitespace-nowrap bg-neutral-950 py-0.5 pr-2 text-right font-normal">
                   <Link
-                    href={`/${formatSlug}/${row.slug}${pageQuery(windowDays, source)}`}
+                    href={`${linkRoot ?? `/magic/${formatSlug}`}/${row.slug}${pageQuery(windowDays, source, extra)}`}
                     className="inline-flex items-center gap-1.5 text-neutral-300 hover:text-emerald-400"
                   >
                     <span className="tabular-nums text-neutral-600">{i + 1}.</span>
-                    <ColorPips colorId={colorNameToId(row.colorName)} size={11} />
+                    {renderIdentity ? renderIdentity(row) : <ColorPips colorId={colorNameToId(row.colorName)} size={11} />}
                     <span className="max-w-[12rem] truncate">{formatArchetype(row.archetype)}</span>
                   </Link>
                 </th>

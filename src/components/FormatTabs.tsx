@@ -11,7 +11,7 @@ export function FormatTabs({ active, windowDays, source }: { active?: string; wi
         return (
           <Link
             key={f}
-            href={`/${slug}${pageQuery(windowDays, source)}`}
+            href={`/magic/${slug}${pageQuery(windowDays, source)}`}
             className={[
               "rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
               on ? "bg-emerald-600 text-white" : "bg-neutral-900 text-neutral-300 hover:bg-neutral-800",

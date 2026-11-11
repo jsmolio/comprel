@@ -361,11 +361,44 @@ async function main() {
     return 0;
   });
 
-  if (code !== 0) process.exit(code);
-  console.log("✓ Publish finished.");
+  return code;
 }
 
-main().catch((error) => {
-  console.error(error);
-  process.exit(1);
-});
+const game = flag("game") ?? "magic";
+
+async function run(): Promise<number> {
+  if (game === "riftbound") {
+    const { publishRiftbound } = await import("./backfill-riftbound");
+    return publishRiftbound(process.argv.slice(2));
+  }
+  if (game === "both") {
+    const { publishRiftbound } = await import("./backfill-riftbound");
+    const magic = await main().catch((error) => {
+      console.error(error);
+      return 1;
+    });
+    const riftbound = await publishRiftbound(process.argv.slice(2)).catch((error) => {
+      console.error(error);
+      return 1;
+    });
+    if (magic !== 0) console.error(`Magic publish exited ${magic}; Riftbound was still attempted.`);
+    if (riftbound !== 0) console.error(`Riftbound publish exited ${riftbound}; Magic was still attempted.`);
+    return magic === 0 || riftbound === 0 ? 0 : 1;
+  }
+  if (game !== "magic") {
+    console.error(`Unknown --game=${game}. Use magic, riftbound, or both.`);
+    return 1;
+  }
+  return main();
+}
+
+run()
+  .then((code) => {
+    if (code !== 0) process.exit(code);
+    if (game === "magic") console.log("✓ Publish finished.");
+    else if (game !== "both") console.log("✓ Riftbound publish finished.");
+  })
+  .catch((error) => {
+    console.error(error);
+    process.exit(1);
+  });

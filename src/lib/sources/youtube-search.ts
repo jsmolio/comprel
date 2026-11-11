@@ -28,10 +28,11 @@ export async function searchYoutube(
   archetype: string,
   max = 6,
   publishedAfter?: string,
+  query?: string,
 ): Promise<YoutubeHit[]> {
   const key = process.env.YOUTUBE_API_KEY;
   if (!key) return [];
-  const q = `MTG ${format} ${archetype} gameplay`;
+  const q = query ?? `MTG ${format} ${archetype} gameplay`;
   const after = publishedAfter ? `&publishedAfter=${encodeURIComponent(publishedAfter)}` : "";
   const url = `${SEARCH}?part=snippet&type=video&maxResults=${max}&order=relevance${after}&q=${encodeURIComponent(q)}&key=${encodeURIComponent(key)}`;
   const res = await fetch(url);

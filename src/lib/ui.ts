@@ -19,9 +19,18 @@ export function conversionRate(top: number | undefined, elig: number | undefined
   return (top ?? 0) / elig;
 }
 
-/** Build the page query string that carries both the window and source filters. */
-export function pageQuery(windowDays: number, source: string): string {
-  return `?window=${windowDays}&source=${source}`;
+/** Build the page query string that carries the window, source, and any extra filters. */
+export function pageQuery(windowDays: number, source: string, extra?: Record<string, string | undefined>): string {
+  const params = new URLSearchParams();
+  params.set("window", String(windowDays));
+  params.set("source", source);
+  if (extra) {
+    for (const [key, value] of Object.entries(extra)) {
+      if (value) params.set(key, value);
+    }
+  }
+  const query = params.toString();
+  return query ? `?${query}` : "";
 }
 
 /**

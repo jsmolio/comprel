@@ -7,10 +7,12 @@ export function WindowToggle({
   basePath,
   windowDays,
   source,
+  extra,
 }: {
   basePath: string;
   windowDays: number;
   source: string;
+  extra?: Record<string, string | undefined>;
 }) {
   return (
     <div className="inline-flex overflow-hidden rounded-md border border-neutral-700 text-sm">
@@ -19,7 +21,7 @@ export function WindowToggle({
         return (
           <Link
             key={w}
-            href={`${basePath}${pageQuery(w, source)}`}
+            href={`${basePath}${pageQuery(w, source, extra)}`}
             className={[
               "px-3 py-1 transition-colors",
               on ? "bg-emerald-600 text-white" : "bg-neutral-900 text-neutral-300 hover:bg-neutral-800",

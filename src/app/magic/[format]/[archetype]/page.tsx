@@ -101,7 +101,7 @@ export default async function ArchetypePage({
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <nav className="mb-1 text-xs text-neutral-500">
-            <Link href={`/${slug}${pageQuery(windowDays, source)}`} className="hover:text-neutral-300">
+            <Link href={`/magic/${slug}${pageQuery(windowDays, source)}`} className="hover:text-neutral-300">
               {format}
             </Link>{" "}
             / {formatArchetype(detail.archetype)}
@@ -112,8 +112,8 @@ export default async function ArchetypePage({
           </h1>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <SourceToggle basePath={`/${slug}/${archetypeSlug}`} windowDays={windowDays} source={source} />
-          <WindowToggle basePath={`/${slug}/${archetypeSlug}`} windowDays={windowDays} source={source} />
+          <SourceToggle basePath={`/magic/${slug}/${archetypeSlug}`} windowDays={windowDays} source={source} />
+          <WindowToggle basePath={`/magic/${slug}/${archetypeSlug}`} windowDays={windowDays} source={source} />
         </div>
       </div>
 

@@ -28,7 +28,7 @@ export default async function FormatPage({
   const windowDays = normalizeWindow(sp.window);
   const source = normalizeSource(sp.source);
   const slug = format.toLowerCase();
-  const basePath = `/${slug}`;
+  const basePath = `/magic/${slug}`;
 
   const [breakdown, matrix] = await Promise.all([
     getMetaBreakdown(format, windowDays, source),
