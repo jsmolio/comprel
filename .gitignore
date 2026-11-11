@@ -48,4 +48,6 @@ next-env.d.ts
 
 # publish scratch
 data/facts/v1/.lock
+data/facts/riftbound/v1/.lock
 data/**/*.tmp
+data/cache/

@@ -43,7 +43,7 @@ export function sliceKey(windowDays: number, source: SourceFilter): string {
 }
 
 /** 25th-newest deck instant for a format, or the oldest deck when fewer than 25 exist. */
-export function anchorMs(events: FactEvent[]): number | null {
+export function anchorMs(events: readonly { date: string; decks: readonly unknown[] }[]): number | null {
   const times: number[] = [];
   for (const event of events) {
     if (event.decks.length === 0) continue;
@@ -108,7 +108,26 @@ function deckRefs(events: FactEvent[], filter: SourceFilter): DeckRef[] {
   return out;
 }
 
-function archetypeByPlayer(event: FactEvent): Map<string, string> {
+/** Fields the share / win-rate math reads. Magic facts satisfy this, and so do other games. */
+export interface SliceEvent {
+  id: string;
+  source: string;
+  date: string;
+  deckCount: number;
+  decks: { player: string; archetype: string; colorName: string | null; rank: number | null }[];
+  matches: { player1: string; player2: string; winner: 0 | 1 | 2 }[];
+}
+
+/**
+ * Optional predicates so a second game can reuse the same window, share, and
+ * Wilson math. Omitted predicates keep the Magic source-filter behavior.
+ */
+export interface SliceScope {
+  includeDeck?: (event: SliceEvent) => boolean;
+  includeMatch?: (event: SliceEvent) => boolean;
+}
+
+function archetypeByPlayer(event: SliceEvent): Map<string, string> {
   const map = new Map<string, string>();
   for (const deck of event.decks) {
     if (!map.has(deck.player) && deck.archetype) map.set(deck.player, deck.archetype);
@@ -116,10 +135,37 @@ function archetypeByPlayer(event: FactEvent): Map<string, string> {
   return map;
 }
 
-export function computeSlice(events: FactEvent[], anchor: number, windowDays: number, filter: SourceFilter): SnapSlice {
+function sliceDecks(events: readonly SliceEvent[], allow: (event: SliceEvent) => boolean) {
+  const out: { player: string; archetype: string; colorName: string | null; rank: number | null; time: number; deckCount: number }[] = [];
+  for (const event of events) {
+    if (!allow(event)) continue;
+    const time = eventTime(event);
+    for (const deck of event.decks) {
+      out.push({
+        player: deck.player,
+        archetype: deck.archetype || "Unknown",
+        colorName: deck.colorName,
+        rank: deck.rank,
+        time,
+        deckCount: event.deckCount,
+      });
+    }
+  }
+  return out;
+}
+
+export function computeSlice(
+  events: readonly SliceEvent[],
+  anchor: number,
+  windowDays: number,
+  filter: SourceFilter,
+  scope?: SliceScope,
+): SnapSlice {
   const cutoff = anchor - windowDays * DAY_MS;
   const prevCutoff = cutoff - windowDays * DAY_MS;
-  const decks = deckRefs(events, filter);
+  const allowDeck = scope?.includeDeck ?? ((event: SliceEvent) => inSource(event.source, filter));
+  const allowMatch = scope?.includeMatch ?? ((event: SliceEvent) => inSource(event.source, filter));
+  const decks = sliceDecks(events, allowDeck);
 
   const current = decks.filter((d) => d.time >= cutoff);
   const previous = decks.filter((d) => d.time >= prevCutoff && d.time < cutoff);
@@ -163,18 +209,18 @@ export function computeSlice(events: FactEvent[], anchor: number, windowDays: nu
   };
   for (const deck of current) {
     const row = bumpConv(deck.archetype);
-    if (deck.rank != null && deck.event.deckCount >= 16) {
+    if (deck.rank != null && deck.deckCount >= 16) {
       row.elig8++;
       if (deck.rank <= 8) row.top8++;
     }
-    if (deck.rank != null && deck.event.deckCount >= 64) {
+    if (deck.rank != null && deck.deckCount >= 64) {
       row.elig32++;
       if (deck.rank <= 32) row.top32++;
     }
   }
 
   for (const event of events) {
-    if (!inSource(event.source, filter) || eventTime(event) < cutoff) continue;
+    if (!allowMatch(event) || eventTime(event) < cutoff) continue;
     const byPlayer = archetypeByPlayer(event);
     for (const match of event.matches) {
       const a = byPlayer.get(match.player1);
@@ -250,10 +296,16 @@ export function computeSlice(events: FactEvent[], anchor: number, windowDays: nu
   return { totalDecks, rows, matchups };
 }
 
-export function computeWeekly(events: FactEvent[], anchor: number, filter: SourceFilter): SnapWeek[] {
+export function computeWeekly(
+  events: readonly SliceEvent[],
+  anchor: number,
+  filter: SourceFilter,
+  scope?: Pick<SliceScope, "includeDeck">,
+): SnapWeek[] {
   const start = anchor - CHART_DAYS * DAY_MS;
+  const allowDeck = scope?.includeDeck ?? ((event: SliceEvent) => inSource(event.source, filter));
   const byWeek = new Map<string, SnapWeek>();
-  for (const deck of deckRefs(events, filter)) {
+  for (const deck of sliceDecks(events, allowDeck)) {
     if (deck.time < start) continue;
     const week = weekStart(deck.time);
     let row = byWeek.get(week);

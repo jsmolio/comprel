@@ -2,7 +2,6 @@
 
 import { useState } from "react";
 import type { TimelinePoint, BanMarker } from "@/lib/queries";
-import type { Format } from "@/lib/types";
 import { pct } from "@/lib/ui";
 
 const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -18,7 +17,7 @@ type Mode = "total" | "top10";
  * with dashed amber markers at B&R announcements affecting this format (#5), and a
  * toggle between share-of-the-whole-field and share-of-the-top-10-archetypes.
  */
-export function ShareChart({ points, format, bans }: { points: TimelinePoint[]; format: Format; bans: BanMarker[] }) {
+export function ShareChart({ points, format, bans }: { points: TimelinePoint[]; format: string; bans: BanMarker[] }) {
   const [mode, setMode] = useState<Mode>("total");
 
   if (points.length < 3) {

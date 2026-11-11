@@ -1,5 +1,4 @@
 import type { FormatSnap, StoredVideo, VideosState } from "./types";
-import type { Format } from "../types";
 
 /** search.list costs 100 YouTube quota units. Default project quota is 10,000 units/day. */
 export const VIDEO_TOP_PER_FORMAT = 6;
@@ -14,7 +13,7 @@ export const YOUTUBE_SEARCH_UNITS = 100;
 export const VIDEO_DAILY_QUOTA_UNITS = VIDEO_DAILY_SEARCH_CAP * YOUTUBE_SEARCH_UNITS;
 
 export interface VideoTarget {
-  format: Format;
+  format: string;
   archetype: string;
 }
 

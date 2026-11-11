@@ -1,108 +1,154 @@
 # compREL
 
-A one-stop site for competitive **Magic: the Gathering** — metagame share, tournament
-decklists, and **head-to-head matchup win rates** computed from real pairing data across
-every constructed format (Standard, Pioneer, Modern, Legacy, Vintage, Pauper).
+A database-free Next.js site for competitive constructed metagames. Visitors pick a game
+on `/`. **Magic: the Gathering** lives under `/magic`. **Riftbound** lives under `/riftbound`.
+Every old Magic URL still works: `/modern` permanently redirects to `/magic/modern`, and
+`/modern/<archetype>` to `/magic/modern/<archetype>`, query string included.
 
-Built with Next.js 16 (App Router) + TypeScript + Tailwind v4 + Prisma. Tournament
-results come from an open dataset. Same-day MTGO events that dataset does not have yet
-are read from mtgo.com decklist pages.
+The site reads published snapshots. It does not open Postgres at request time.
 
-## What it does
+| Game | Pages | Snapshot | Facts |
+| --- | --- | --- | --- |
+| Magic | `/magic`, `/magic/<format>`, `/magic/<format>/<archetype>` | `data/published/snapshot.json` | `data/facts/v1` |
+| Riftbound | `/riftbound`, `/riftbound/<legend>` | `data/published/riftbound/snapshot.json` | `data/facts/riftbound/v1` |
 
-- **Metagame share** per format and rolling window (14 / 30 / 90 days).
-- **Two distinct win-rate signals**, never conflated:
-  - _Aggregate win rate_ — a deck's overall match win % across all events (high volume, MTGO + paper).
-  - _Head-to-head matchups_ — deck-vs-deck win % from round-by-round pairings, shown with sample size
-    and a **Wilson 95% confidence interval** so small samples are obvious.
-- **Decklists** grouped by card type, with hover card previews (Scryfall), price estimates,
-  and links back to the source event.
-- **Matchup matrix** — a numbered heatmap of the top archetypes for each format.
-- **Gameplay videos** per archetype via the YouTube Data API (optional).
+Riftbound is not folded into the Magic snapshot. GitHub warns at 50 MB per file, and the
+Magic snapshot is already near that line.
 
-## Data sources
+## Magic
 
-| Layer | Source | Notes |
-| --- | --- | --- |
-| Decklists + tournaments + pairings | [MTG_decklistcache](https://github.com/fbettega/MTG_decklistcache) | Open dataset aggregating MTGO, Melee, TopDeck, Manatraders, CardsRealm. It updates daily and has no same-day events. |
-| Same-day MTGO | [mtgo.com decklists](https://www.mtgo.com/decklists) | Read only for recent events that are not already stored with a list. |
-| Archetype rules + card colors | [MTGOFormatData](https://github.com/Badaro/MTGOFormatData) | Vendored under `data/mtgoformatdata/` (+ local overrides in `data/rule-overrides/`) |
-| Card images / oracle / prices | [Scryfall API](https://scryfall.com/docs/api) | Official, keyless |
-| Gameplay videos | YouTube Data API v3 | Optional, needs `YOUTUBE_API_KEY` (lazy, on-demand) |
+Formats: Standard, Pioneer, Modern, Legacy, Vintage, Pauper. Windows: 7, 14, 30, 90, 365
+days. Sources: all / paper / MTGO.
 
-Head-to-head matchups are **computed here** from pairings + archetype classification — they are
-not fetched pre-aggregated from anyone.
+- Metagame share, with tails under 0.5% folded into Other.
+- Top 8 and Top 32 conversion.
+- Aggregate win rate, faded under 20 matches. It comes from pairings, not from a deck's stored record, and mirror matches are excluded.
+- Head-to-head matrix for the top 12, with a Wilson 95% confidence interval.
+- Archetype pages: signature cards, a 12-month share chart with ban markers, matchups, representative lists (hover images and prices), videos, and a sideboard-guide placeholder.
+- Same-day MTGO coverage is reported on the home page. A structural MTGO failure or any missed cache file keeps the previous Magic snapshot.
 
-## Architecture
+| Layer | Source |
+| --- | --- |
+| Decklists, tournaments, pairings | [MTG_decklistcache](https://github.com/fbettega/MTG_decklistcache) |
+| Same-day MTGO | [mtgo.com decklists](https://www.mtgo.com/decklists) |
+| Archetype rules | [MTGOFormatData](https://github.com/Badaro/MTGOFormatData), vendored under `data/mtgoformatdata/` |
+| Card images and prices | [Scryfall](https://scryfall.com/docs/api) |
+| Gameplay videos | YouTube Data API v3, optional `YOUTUBE_API_KEY` |
 
-```
-data/mtgoformatdata/     vendored archetype + color rules
-prisma/schema.prisma     SQLite (dev) — portable to Postgres/Supabase
-src/lib/
-  sources/               mtgodecklistcache, scryfall, youtube
-  archetype/             rules-based classifier (12 condition types) + color naming
-  analytics/aggregate    meta share, aggregate win rate, matchup matrix + Wilson CI
-  queries.ts             server-side reads for the pages
-src/app/                 / , /[format] , /[format]/[archetype]
-src/components/          MetaShareTable, MatchupMatrix, MatchupTable, DeckList, ...
-scripts/                 ingest, enrich, videos, watch
-```
+`/api/ingest` returns 410. Publishing is the scheduled workflow, not that route.
+`/api/videos` still serves Magic videos from the snapshot (`?format=&archetype=`). It does
+not call YouTube.
 
-## Setup
+## Riftbound
+
+Official constructed is one card pool, so there are no Modern/Legacy-style formats. The
+format tabs are set eras, edited in [`data/riftbound/eras.json`](data/riftbound/eras.json):
+Origins, Spiritforged, Unleashed, Vendetta, Vendetta post-ban, and Radiance. The same
+rolling windows sit beside that filter. 2v2, trios, sealed, and draft are not ingested.
+
+An archetype is a **legend**. Color identity is the six domains (Fury, Mind, Calm, Body,
+Order, Chaos). Lists are shown as legend, champion, battlefields, main deck, rune deck,
+and sideboard. Runes are treated like basic lands when picking signature cards. Empty
+champion or battlefield zones are shown as zero. Prices are approximate TCGplayer USD.
+Images are hotlinked from OpenRift at 400px, not bulk-mirrored.
+
+Sources: all / UVS / PlayRiftbound / topdeck.gg / Chinese (loltcg). Chinese events count
+toward share and are excluded from win rate and the head-to-head matrix. Mirror matches
+are excluded and the pages say so. Events need at least 8 players.
+
+Win rates, shares, and Wilson intervals are computed in this repo from raw standings and
+pairings. BoundRift's aggregate stat endpoints are not the source of truth.
+
+### What is different, or not available
+
+- No paper/MTGO split. The source toggle is the organizer feed.
+- No rules-based archetype taxonomy below the legend.
+- PlayRiftbound events publish no decklists, so they can show up as coverage lag without lists.
+- Chinese events publish lists and placements, not match results.
+- Some events have standings and still no lists (`hasDeck` is false). Those pilots still count toward share when a legend is known.
+- Sideboard guides are a placeholder, same as Magic.
+- Gameplay search is `Riftbound {legend} gameplay`. It stays in the no-key state until `YOUTUBE_API_KEY` is set on the publisher. This repo does not configure that secret.
+- Era bounds follow English set release dates from OpenRift, which match BoundRift's Radiance window. Chinese printings of earlier sets went on sale sooner; the file is the place to change that. Vendetta post-ban starts 2026-09-18, the date BoundRift documents and the day the rules hub was last updated. Ban dates come from OpenRift `card.bans` and match the cards and battlefields listed on the rules hub. The hub spells the battlefield as Dreaming Tree; the printed name is The Dreaming Tree.
+
+### Sources, attribution, and terms
+
+- Tournaments: [BoundRift](https://boundrift.com) public JSON API (`https://boundrift.com/api`, docs at `https://boundrift.com/llms.txt`). The ingest sends an identifiable User-Agent, keeps concurrency low, honors `Retry-After` on HTTP 429, and caches OpenRift responses with ETags. One event failing never blocks the snapshot. The previous snapshot is held only when the event list is unavailable or every fetched payload fails the shape check.
+- Cards: [OpenRift](https://openrift.app/developers), no key. Please keep the User-Agent. Card text and images belong to Riot Games.
+- Rules and the current ban list: [Riftbound Rules Hub](https://playriftbound.com/en-us/rules-hub/). There is no machine-readable ban API; `data/riftbound/eras.json` is the maintained copy.
+- compREL isn't endorsed by Riot Games and doesn't reflect the views or opinions of Riot Games or anyone officially involved in producing or managing Riftbound. Riftbound and Riot Games are trademarks or registered trademarks of Riot Games, Inc.
+
+## Scheduled ingest
+
+[`.github/workflows/ingest.yml`](.github/workflows/ingest.yml) runs every 2 hours. Magic and
+Riftbound are separate steps. A failure restores that game's working tree and does not
+block the other game's commit. Both failing commits nothing. The cron line is unchanged.
+Do not dispatch the workflow by hand as part of a change; it stays disabled in the GitHub
+UI until someone turns it back on.
 
 ```bash
-pnpm install
-pnpm db:push            # create the SQLite database
-pnpm ingest --days=30   # import -> classify -> aggregate -> enrich cards (real data)
-pnpm dev                # http://localhost:3000
+pnpm backfill --incremental                  # Magic only
+pnpm backfill --incremental --game=riftbound # Riftbound only
+pnpm backfill --game=both                    # local: each game still publishes on its own
 ```
 
-Optional enrichment:
+Magic structural failure (cache holes, MTGO unavailable) still refuses the Magic snapshot.
+Riftbound's gate is looser: partial event coverage publishes and is reported on the banner
+(BoundRift misses, events the budget did not reach, PlayRiftbound lists still missing).
+
+### First Riftbound snapshot
+
+The committed Riftbound facts were generated on 2026-11-11 from BoundRift's featured
+event list plus the regionals index. The pull is finished constructed events from the
+prior 90 days: regionals, showdowns, other constructed events of 128+ players,
+PlayRiftbound, and a 16-event skirmish sample spread across sources. Decklists are capped
+at 24 per event (one list per legend, then the next best finishes). That run stored 66
+events (about 10 MB of facts). The published snapshot is about 17 MB. One event
+(`1247372`, Friday Morning Riftbound Open Play) returned no standings and is recorded as
+a miss. Five nexus nights named no legend on standings or pairings and were not stored.
+Two PlayRiftbound events are in the window with no lists. Regenerate with:
 
 ```bash
-YOUTUBE_API_KEY=...  pnpm tsx scripts/videos.ts    # warm the video cache (videos also load lazily on demand)
+pnpm backfill --game=riftbound --days=90 --max-requests=3500 --budget-ms=1200000
 ```
+
+`--publish-only` rebuilds the snapshot from facts and the OpenRift cache without
+calling BoundRift. A smaller incremental run is what the workflow uses (`--incremental`
+defaults to 400 requests and 8 minutes). If BoundRift cannot be reached, `/riftbound`
+renders the missing snapshot state instead of an empty metagame, and the command above
+is the first run.
+
+OpenRift responses are cached under `data/cache/riftbound/`, which is gitignored.
 
 ## Scripts
 
-- `pnpm ingest [--days=N] [--no-scryfall]` — full pipeline.
-- `pnpm ingest:incremental` — only fetch/import new tournaments (skips known files), then re-aggregate.
-- `pnpm aggregate` — recompute meta/matchup stats only.
-- `pnpm tsx scripts/enrich.ts` — backfill card data from Scryfall.
-- `pnpm tsx scripts/videos.ts` — warm the YouTube video cache (needs key).
-
-## Automatic ingestion
-
-The upstream cache updates daily, so "auto-ingest" just means running the incremental ingest on a
-schedule. Pick one:
-
-**Foreground (no setup)** — run it and leave the terminal open:
-
 ```bash
-pnpm watch                       # incremental ingest now, then every 6h
-INGEST_INTERVAL_HOURS=3 pnpm watch
+pnpm install
+pnpm dev          # http://localhost:3000
+pnpm test
+pnpm exec tsc --noEmit
+pnpm build        # fails if a snapshot file is present but not schemaVersion 1 / status ok
 ```
 
-**Local cron (macOS, hands-off)** — a launchd agent that runs 4×/day:
+`pnpm build` does not need `DATABASE_URL`. The legacy Prisma scripts (`pnpm db:push`,
+`pnpm ingest`) are still in the repo and are not what the site or the scheduled job reads.
 
-```bash
-cp deploy/com.comprel.ingest.plist ~/Library/LaunchAgents/
-launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.comprel.ingest.plist
-launchctl kickstart -k gui/$(id -u)/com.comprel.ingest   # run once now
-tail -f ~/Library/Logs/comprel-ingest.log                # watch it
-# uninstall: launchctl bootout gui/$(id -u)/com.comprel.ingest && rm ~/Library/LaunchAgents/com.comprel.ingest.plist
+## Layout
+
+```
+data/facts/v1/                         Magic events, boards, extras
+data/facts/riftbound/v1/               Riftbound events, boards, extras
+data/published/snapshot.json           Magic display snapshot
+data/published/riftbound/snapshot.json Riftbound display snapshot
+data/riftbound/eras.json               era windows and ban markers
+src/lib/facts/                         shared publish guard, Wilson interval, slice math
+src/lib/riftbound/                     BoundRift ingest, era filter, snapshot builder
+src/app/                               chooser, /magic, /riftbound
 ```
 
-**HTTP trigger (production)** — `POST/GET /api/ingest`, guarded by `INGEST_TOKEN` (or Vercel's
-`CRON_SECRET`). [`vercel.json`](vercel.json) already schedules it every 6 hours via Vercel Cron;
-any scheduler that can hit a URL works too.
-
-## Going to production
-
-The schema is written to port cleanly to Postgres/Supabase: change the Prisma `datasource`
-provider + `DATABASE_URL`, run `prisma migrate`, and let Vercel Cron hit `/api/ingest` for refresh.
+Snapshots are schema-checked and renamed into place. A throw before the rename leaves the
+previous file untouched.
 
 ---
 
 compREL is an unofficial fan project. Magic: the Gathering is © Wizards of the Coast.
-Tournament data via MTGODecklistCache; archetype rules via MTGOFormatData; card data via Scryfall.
+Tournament data via MTGODecklistCache and BoundRift. Card data via Scryfall and OpenRift.

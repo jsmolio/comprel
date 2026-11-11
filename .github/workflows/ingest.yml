@@ -8,11 +8,10 @@ name: Scheduled ingest
 # re-enable a workflow that was disabled manually. Do not dispatch it as part
 # of opening this change.
 #
-# A non-zero backfill exit skips every later step, including the commit.
-# GitHub Actions runs a step only when the previous step succeeded, and this
-# job does not override that. MTGO structural failure and any missed cache
-# file exit 1 before the snapshot is renamed, so a failed run cannot push a
-# partial refresh. There is no exit-2 path that commits first and fails after.
+# Magic and Riftbound publish independently. A structural failure in one game
+# restores that game's working tree and does not block the other game's commit.
+# There is no exit-2 path. The cron schedule is unchanged. Do not dispatch this
+# workflow as part of opening a change.
 #
 # Token and deploy behavior:
 # - `permissions: contents: write` lets the default GITHUB_TOKEN push to this
@@ -55,15 +54,39 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - name: Incremental publish
+      - name: Incremental Magic publish
+        id: magic
         run: pnpm backfill --incremental
+        continue-on-error: true
         env:
           GITHUB_TOKEN: ${{ github.token }}
           # Empty when the Actions secret is not set. Backfill then keeps the
           # saved video list and does not fail the tournament publish.
           YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
+      - name: Discard partial Magic data
+        if: steps.magic.outcome == 'failure'
+        run: |
+          git checkout -- data/facts/v1 data/published/snapshot.json || true
+          git clean -fd -- data/facts/v1 || true
+      - name: Incremental Riftbound publish
+        id: riftbound
+        run: pnpm backfill --incremental --game=riftbound
+        continue-on-error: true
+        env:
+          YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
+      - name: Discard partial Riftbound data
+        if: steps.riftbound.outcome == 'failure'
+        run: |
+          git checkout -- data/facts/riftbound data/published/riftbound || true
+          git clean -fd -- data/facts/riftbound data/published/riftbound || true
       - name: Commit published data
         run: |
+          magic="${{ steps.magic.outcome }}"
+          rift="${{ steps.riftbound.outcome }}"
+          if [ "$magic" != "success" ] && [ "$rift" != "success" ]; then
+            echo "Both game publishes failed; nothing committed."
+            exit 1
+          fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add data/facts data/published

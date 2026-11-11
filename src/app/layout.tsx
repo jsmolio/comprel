@@ -9,9 +9,8 @@ const geistSans = Geist({ variable: "--font-geist-sans", subsets: ["latin"] });
 const geistMono = Geist_Mono({ variable: "--font-geist-mono", subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "compREL — Competitive Magic: the Gathering metagame",
-  description:
-    "Metagame share, decklists, and head-to-head matchup win rates across every competitive Magic: the Gathering format.",
+  title: "compREL — competitive TCG metagame",
+  description: "Metagame share, decklists, and head-to-head win rates for Magic: the Gathering and Riftbound.",
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
@@ -27,13 +26,16 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
                   <span className="text-neutral-100">comp</span>
                   <span className="text-emerald-400">REL</span>
                 </span>
-                <span className="hidden text-[11px] text-neutral-500 sm:block">competitive MTG metagame</span>
+                <span className="hidden text-[11px] text-neutral-500 sm:block">competitive TCG metagame</span>
               </span>
             </Link>
-            <nav className="text-sm text-neutral-400">
-              <a href="https://github.com/fbettega/MTG_decklistcache" className="hover:text-neutral-200" target="_blank" rel="noreferrer">
-                data sources
-              </a>
+            <nav className="flex items-center gap-4 text-sm text-neutral-400">
+              <Link href="/magic" className="hover:text-neutral-200">
+                Magic
+              </Link>
+              <Link href="/riftbound" className="hover:text-neutral-200">
+                Riftbound
+              </Link>
             </nav>
           </div>
         </header>
@@ -57,7 +59,23 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
               </a>
               .
             </p>
-            <p>compREL is an unofficial fan project. Magic: the Gathering is © Wizards of the Coast.</p>
+            <p>
+              Riftbound tournament results via{" "}
+              <a className="underline hover:text-neutral-300" href="https://boundrift.com" target="_blank" rel="noreferrer">
+                BoundRift
+              </a>
+              . Card data &amp; images via{" "}
+              <a className="underline hover:text-neutral-300" href="https://openrift.app/developers" target="_blank" rel="noreferrer">
+                OpenRift
+              </a>
+              . Card images are hotlinked, not mirrored.
+            </p>
+            <p>
+              compREL is an unofficial fan project. Magic: the Gathering is © Wizards of the Coast. compREL isn&apos;t
+              endorsed by Riot Games and doesn&apos;t reflect the views or opinions of Riot Games or anyone officially
+              involved in producing or managing Riftbound. Riftbound and Riot Games are trademarks or registered trademarks
+              of Riot Games, Inc.
+            </p>
           </div>
         </footer>
         <Analytics />

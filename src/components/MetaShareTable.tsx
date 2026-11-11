@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import Link from "next/link";
 import type { ArchetypeRow } from "@/lib/queries";
 import { colorNameToId } from "@/lib/archetype/colors";
@@ -29,11 +30,22 @@ export function MetaShareTable({
   formatSlug,
   windowDays,
   source,
+  linkRoot,
+  extra,
+  renderIdentity,
+  nameColumn = "Deck",
+  tailNoun = "archetypes",
 }: {
   rows: ArchetypeRow[];
   formatSlug: string;
   windowDays: number;
   source: string;
+  /** Path before the archetype slug. Defaults to `/magic/{format}`. */
+  linkRoot?: string;
+  extra?: Record<string, string | undefined>;
+  renderIdentity?: (row: ArchetypeRow) => ReactNode;
+  nameColumn?: string;
+  tailNoun?: string;
 }) {
   const kept = rows.filter((r) => !isTail(r));
   const tail = rows.filter(isTail);
@@ -46,7 +58,7 @@ export function MetaShareTable({
       <thead>
         <tr className="border-b border-neutral-800 text-left text-xs uppercase tracking-wide text-neutral-500">
           <th className="py-2 pr-2 font-medium">#</th>
-          <th className="py-2 pr-2 font-medium">Deck</th>
+          <th className="py-2 pr-2 font-medium">{nameColumn}</th>
           <th className="py-2 pr-2 font-medium">Meta share</th>
           <th className="py-2 pr-2 text-right font-medium">Decks</th>
           <th className="py-2 pr-2 text-right font-medium" title="Share of entries finishing Top 8, among events with standings and ≥16 players">
@@ -64,11 +76,11 @@ export function MetaShareTable({
             <td className="py-2 pr-2 tabular-nums text-neutral-500">{i + 1}</td>
             <td className="py-2 pr-2">
               <Link
-                href={`/${formatSlug}/${r.slug}${pageQuery(windowDays, source)}`}
+                href={`${linkRoot ?? `/magic/${formatSlug}`}/${r.slug}${pageQuery(windowDays, source, extra)}`}
                 className="inline-flex items-center gap-2 font-medium text-neutral-100 hover:text-emerald-400"
               >
                 <span>{formatArchetype(r.archetype)}</span>
-                <ColorPips colorId={colorNameToId(r.colorName)} />
+                {renderIdentity ? renderIdentity(r) : <ColorPips colorId={colorNameToId(r.colorName)} />}
               </Link>
             </td>
             <td className="py-2 pr-2">
@@ -108,7 +120,7 @@ export function MetaShareTable({
           <tr className="border-t border-neutral-800 text-neutral-500">
             <td className="py-2 pr-2 tabular-nums">{kept.length + 1}</td>
             <td className="py-2 pr-2">
-              Other <span className="text-xs">({tail.length} archetypes)</span>
+              Other <span className="text-xs">({tail.length} {tailNoun})</span>
             </td>
             <td className="py-2 pr-2">
               <div className="flex items-center gap-2">

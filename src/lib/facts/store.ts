@@ -271,35 +271,48 @@ export class FactStore {
    * `beforeRename` lets tests simulate a crash. A throw leaves the previous snapshot.
    */
   writeSnapshot(body: SnapshotBody, publishedAt: string, opts?: { beforeRename?: () => void }): { changed: boolean } {
-    const next: Snapshot = { ...body, publishedAt };
     const previous = this.readSnapshot();
-    if (previous && stableStringify(stripPublishedAt(previous)) === stableStringify(body)) {
-      return { changed: false };
-    }
-    const text = `${stableStringify(next)}\n`;
-    let parsed: Snapshot;
-    try {
-      parsed = JSON.parse(text) as Snapshot;
-    } catch (error) {
-      throw new Error(`Refusing to publish a snapshot that is not valid JSON (${(error as Error).message}).`);
-    }
-    if (parsed.schemaVersion !== 1 || parsed.status !== "ok" || typeof parsed.publishedAt !== "string") {
-      throw new Error(
-        `Refusing to publish a snapshot that fails the schema check (schemaVersion=${String(parsed.schemaVersion)}, status=${String(parsed.status)}).`,
-      );
-    }
-    fs.mkdirSync(path.dirname(this.snapshotFile), { recursive: true });
-    const tmp = `${this.snapshotFile}.${process.pid}.tmp`;
-    fs.writeFileSync(tmp, text);
-    try {
-      opts?.beforeRename?.();
-      fs.renameSync(tmp, this.snapshotFile);
-    } catch (error) {
-      if (fs.existsSync(tmp)) fs.unlinkSync(tmp);
-      throw error;
-    }
-    return { changed: true };
+    return commitSnapshotFile(this.snapshotFile, { ...body, publishedAt }, body, previous ? stripPublishedAt(previous) : null, opts);
   }
+}
+
+/**
+ * Schema-check a snapshot, then rename it into place. A throw before the rename
+ * leaves the previous file untouched. Shared by the Magic and Riftbound publishers.
+ */
+export function commitSnapshotFile(
+  file: string,
+  next: { schemaVersion: number; status: string; publishedAt: string },
+  bodyForCompare: unknown,
+  previousComparable: unknown | null,
+  opts?: { beforeRename?: () => void },
+): { changed: boolean } {
+  if (previousComparable && stableStringify(previousComparable) === stableStringify(bodyForCompare)) {
+    return { changed: false };
+  }
+  const text = `${stableStringify(next)}\n`;
+  let parsed: { schemaVersion?: unknown; status?: unknown; publishedAt?: unknown };
+  try {
+    parsed = JSON.parse(text) as { schemaVersion?: unknown; status?: unknown; publishedAt?: unknown };
+  } catch (error) {
+    throw new Error(`Refusing to publish a snapshot that is not valid JSON (${(error as Error).message}).`);
+  }
+  if (parsed.schemaVersion !== 1 || parsed.status !== "ok" || typeof parsed.publishedAt !== "string") {
+    throw new Error(
+      `Refusing to publish a snapshot that fails the schema check (schemaVersion=${String(parsed.schemaVersion)}, status=${String(parsed.status)}).`,
+    );
+  }
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  const tmp = `${file}.${process.pid}.tmp`;
+  fs.writeFileSync(tmp, text);
+  try {
+    opts?.beforeRename?.();
+    fs.renameSync(tmp, file);
+  } catch (error) {
+    if (fs.existsSync(tmp)) fs.unlinkSync(tmp);
+    throw error;
+  }
+  return { changed: true };
 }
 
 function stripPublishedAt(snapshot: Snapshot): SnapshotBody {
@@ -320,7 +333,7 @@ function stripPublishedAt(snapshot: Snapshot): SnapshotBody {
 
 const LOCK_STALE_MS = 2 * 60 * 60 * 1000;
 
-export function withPublishLock<T>(store: FactStore, fn: () => Promise<T>): Promise<T> {
+export function withPublishLock<T>(store: { factDir: string }, fn: () => Promise<T>): Promise<T> {
   const lock = path.join(store.factDir, ".lock");
   fs.mkdirSync(store.factDir, { recursive: true });
   if (fs.existsSync(lock)) {

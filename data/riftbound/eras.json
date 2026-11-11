@@ -1,0 +1,26 @@
+{
+  "minPlayers": 8,
+  "note": "Era bounds are English set release dates from OpenRift, which match BoundRift's Radiance window (2026-10-23 through 2027-01-29). Vendetta post-ban is the date window BoundRift documents, starting the day the rules hub was last updated (2026-09-18). Ban dates are OpenRift card.bans[].bannedAt. The rules hub lists the same cards and battlefields and shortens The Dreaming Tree to Dreaming Tree. Ends are exclusive.",
+  "eras": [
+    { "id": "origins", "name": "Origins", "start": "2025-10-31", "end": "2026-02-13" },
+    { "id": "spiritforged", "name": "Spiritforged", "start": "2026-02-13", "end": "2026-05-08" },
+    { "id": "unleashed", "name": "Unleashed", "start": "2026-05-08", "end": "2026-07-31" },
+    { "id": "vendetta", "name": "Vendetta", "start": "2026-07-31", "end": "2026-10-23" },
+    { "id": "vendetta-postban", "name": "Vendetta post-ban", "start": "2026-09-18", "end": "2026-10-23" },
+    { "id": "radiance", "name": "Radiance", "start": "2026-10-23", "end": "2027-01-29" }
+  ],
+  "bans": [
+    { "date": "2026-03-31", "card": "Called Shot", "kind": "card" },
+    { "date": "2026-03-31", "card": "Draven, Vanquisher", "kind": "card" },
+    { "date": "2026-03-31", "card": "Fight or Flight", "kind": "card" },
+    { "date": "2026-03-31", "card": "Scrapheap", "kind": "card" },
+    { "date": "2026-03-31", "card": "Dreaming Tree", "printedName": "The Dreaming Tree", "kind": "battlefield" },
+    { "date": "2026-03-31", "card": "Obelisk of Power", "kind": "battlefield" },
+    { "date": "2026-03-31", "card": "Reaver's Row", "kind": "battlefield" },
+    { "date": "2026-07-24", "card": "Stealthy Pursuer", "kind": "card" },
+    { "date": "2026-07-24", "card": "The Arena's Greatest", "kind": "battlefield" },
+    { "date": "2026-07-24", "card": "Aspirant's Climb", "kind": "battlefield" },
+    { "date": "2026-09-18", "card": "Ekko, Recurrent", "kind": "card" },
+    { "date": "2026-09-18", "card": "Stacked Deck", "kind": "card" }
+  ]
+}

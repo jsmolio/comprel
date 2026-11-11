@@ -36,11 +36,15 @@ export function MatchupTable({
   formatSlug,
   windowDays,
   source,
+  linkRoot,
+  extra,
 }: {
   rows: MatchupRow[];
   formatSlug: string;
   windowDays: number;
   source: string;
+  linkRoot?: string;
+  extra?: Record<string, string | undefined>;
 }) {
   // Default to the original order: sample size (n), descending.
   const [sort, setSort] = useState<{ key: SortKey; dir: "asc" | "desc" }>({ key: "matches", dir: "desc" });
@@ -92,7 +96,7 @@ export function MatchupTable({
           <tr key={r.opponent} className="border-b border-neutral-900">
             <td className="py-2 pr-2">
               <Link
-                href={`/${formatSlug}/${r.slug}${pageQuery(windowDays, source)}`}
+                href={`${linkRoot ?? `/magic/${formatSlug}`}/${r.slug}${pageQuery(windowDays, source, extra)}`}
                 className="text-neutral-200 hover:text-emerald-400 hover:underline"
               >
                 {formatArchetype(r.opponent)}

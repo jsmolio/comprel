@@ -15,17 +15,18 @@ export function VideoSection({
   archetype,
   initialVideos,
   stale = false,
+  searchQuery,
 }: {
   format: string;
   archetype: string;
   initialVideos: VideoItem[];
   stale?: boolean;
+  searchQuery?: string;
 }) {
   const videos = initialVideos;
+  const query = searchQuery ?? `MTG ${format} ${archetype} gameplay`;
 
-  const searchUrl = `https://www.youtube.com/results?search_query=${encodeURIComponent(
-    `MTG ${format} ${archetype} gameplay`,
-  )}`;
+  const searchUrl = `https://www.youtube.com/results?search_query=${encodeURIComponent(query)}`;
 
   return (
     <section className="space-y-3">

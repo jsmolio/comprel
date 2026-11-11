@@ -1,82 +1,44 @@
 import Link from "next/link";
-import { getFormatSummaries, getLastRefresh } from "@/lib/queries";
-import { ColorPips } from "@/components/ColorPips";
-import { CoverageNote } from "@/components/CoverageNote";
-import { MissingSnapshot } from "@/components/MissingSnapshot";
-import { TrendBadge } from "@/components/TrendBadge";
-import { colorNameToId } from "@/lib/archetype/colors";
-import { loadPublished } from "@/lib/published/load";
-import { fmtDate, formatArchetype, pct, timeAgo } from "@/lib/ui";
 
-export default async function Home() {
-  const loaded = loadPublished();
-  if (!loaded.ok) return <MissingSnapshot reason={loaded.reason} />;
-  const [summaries, lastRefresh] = await Promise.all([getFormatSummaries(), getLastRefresh()]);
-
+export default function ChooseGame() {
   return (
-    <div className="space-y-10">
+    <div className="space-y-8">
       <section className="space-y-3">
         <h1 className="text-3xl font-bold tracking-tight">
-          Everything competitive <span className="text-emerald-400">Magic</span>, in one place.
+          Pick a <span className="text-emerald-400">game</span>.
         </h1>
         <p className="max-w-2xl text-neutral-400">
-          Live metagame share, tournament decklists, and head-to-head matchup win rates computed from real pairing data
-          across every competitive format.
+          compREL tracks competitive constructed metagames from tournament pairings: share, decklists, and head-to-head win
+          rates with a 95% confidence interval.
         </p>
-        {lastRefresh && (
-          <p className="text-xs text-neutral-500">
-            Auto-updates every ~2 hours · data last refreshed {timeAgo(lastRefresh)}.
-          </p>
-        )}
-        <CoverageNote coverage={loaded.snapshot.coverage} />
-        <div className="grid max-w-3xl gap-3 sm:grid-cols-2">
-          <Note title="Aggregate win rate">
-            A deck&apos;s overall match win&nbsp;% across all events — high volume, from MTGO and paper alike.
-          </Note>
-          <Note title="Head-to-head matchups">
-            Deck-vs-deck win&nbsp;% from round-by-round pairings, shown with sample size and a 95% confidence interval.
-          </Note>
-        </div>
       </section>
-
-      <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        {summaries.map((s) => (
-          <Link
-            key={s.format}
-            href={`/${s.format.toLowerCase()}`}
-            className="group rounded-xl border border-neutral-800 bg-neutral-900/40 p-4 transition-colors hover:border-emerald-700/60 hover:bg-neutral-900"
-          >
-            <div className="mb-3 flex items-baseline justify-between">
-              <h2 className="text-lg font-semibold text-neutral-100 group-hover:text-emerald-400">{s.format}</h2>
-              <span className="text-xs text-neutral-500">{s.decks > 0 ? `${s.decks} decks` : "no data"}</span>
-            </div>
-            {s.top.length > 0 ? (
-              <ul className="space-y-1.5">
-                {s.top.map((t) => (
-                  <li key={t.archetype} className="flex items-center gap-2 text-sm">
-                    <span className="min-w-0 flex-1 truncate text-neutral-300">{formatArchetype(t.archetype)}</span>
-                    <ColorPips colorId={colorNameToId(t.colorName)} size={11} />
-                    <span className="w-11 text-right tabular-nums text-neutral-500">{pct(t.metaShare, 1)}</span>
-                    <TrendBadge current={t.metaShare} prev={t.prevShare} className="w-12 justify-end text-xs" />
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <p className="text-sm text-neutral-600">Run ingest to populate this format.</p>
-            )}
-            <p className="mt-3 text-xs text-neutral-600">latest event {fmtDate(s.latest)}</p>
-          </Link>
-        ))}
+      <section className="grid gap-4 sm:grid-cols-2">
+        <GameCard
+          href="/magic"
+          eyebrow="Wizards of the Coast"
+          title="Magic: the Gathering"
+          body="Standard, Pioneer, Modern, Legacy, Vintage, and Pauper. Paper and MTGO, classified into archetypes."
+        />
+        <GameCard
+          href="/riftbound"
+          eyebrow="Riot Games"
+          title="Riftbound"
+          body="One constructed pool, filtered by set era. Legends stand in for archetypes. Domains stand in for colors."
+        />
       </section>
     </div>
   );
 }
 
-function Note({ title, children }: { title: string; children: React.ReactNode }) {
+function GameCard({ href, eyebrow, title, body }: { href: string; eyebrow: string; title: string; body: string }) {
   return (
-    <div className="rounded-lg border border-neutral-800 bg-neutral-900/40 p-3">
-      <div className="text-sm font-semibold text-neutral-200">{title}</div>
-      <p className="mt-1 text-xs leading-5 text-neutral-400">{children}</p>
-    </div>
+    <Link
+      href={href}
+      className="group rounded-xl border border-neutral-800 bg-neutral-900/40 p-5 transition-colors hover:border-emerald-700/60 hover:bg-neutral-900"
+    >
+      <p className="text-xs uppercase tracking-wide text-neutral-500">{eyebrow}</p>
+      <h2 className="mt-1 text-xl font-semibold text-neutral-100 group-hover:text-emerald-400">{title}</h2>
+      <p className="mt-2 text-sm leading-6 text-neutral-400">{body}</p>
+    </Link>
   );
 }

@@ -1,5 +1,5 @@
 /** Shown when this deployment has no published metagame. This is not an empty result set. */
-export function MissingSnapshot({ reason }: { reason: string }) {
+export function MissingSnapshot({ reason, note }: { reason: string; note?: string }) {
   return (
     <section className="max-w-2xl space-y-3 rounded-xl border border-amber-900/60 bg-amber-950/30 p-5">
       <h1 className="text-xl font-semibold text-amber-200">Metagame snapshot has not been published</h1>
@@ -9,9 +9,13 @@ export function MissingSnapshot({ reason }: { reason: string }) {
       </p>
       <p className="text-sm leading-6 text-neutral-400">{reason}</p>
       <p className="text-sm leading-6 text-neutral-400">
-        Build one from the public tournament cache with <code className="text-neutral-200">pnpm backfill</code>, or from
-        an existing database with the read-only <code className="text-neutral-200">pnpm export-db</code>. See DEPLOY.md.
-        Neither command is run automatically by loading this page.
+        {note ?? (
+          <>
+            Build one from the public tournament cache with <code className="text-neutral-200">pnpm backfill</code>, or from
+            an existing database with the read-only <code className="text-neutral-200">pnpm export-db</code>. See DEPLOY.md.
+            Neither command is run automatically by loading this page.
+          </>
+        )}
       </p>
     </section>
   );
