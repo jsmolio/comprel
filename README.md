@@ -4,8 +4,9 @@ A one-stop site for competitive **Magic: the Gathering** — metagame share, tou
 decklists, and **head-to-head matchup win rates** computed from real pairing data across
 every constructed format (Standard, Pioneer, Modern, Legacy, Vintage, Pauper).
 
-Built with Next.js 16 (App Router) + TypeScript + Tailwind v4 + Prisma. No HTML scraping —
-all data comes from open datasets and official APIs.
+Built with Next.js 16 (App Router) + TypeScript + Tailwind v4 + Prisma. Tournament
+results come from an open dataset. Same-day MTGO events that dataset does not have yet
+are read from mtgo.com decklist pages.
 
 ## What it does
 
@@ -19,11 +20,12 @@ all data comes from open datasets and official APIs.
 - **Matchup matrix** — a numbered heatmap of the top archetypes for each format.
 - **Gameplay videos** per archetype via the YouTube Data API (optional).
 
-## Data sources (no scraping)
+## Data sources
 
 | Layer | Source | Notes |
 | --- | --- | --- |
-| Decklists + tournaments + pairings | [MTG_decklistcache](https://github.com/fbettega/MTG_decklistcache) | Open dataset aggregating MTGO, Melee, TopDeck, Manatraders, CardsRealm |
+| Decklists + tournaments + pairings | [MTG_decklistcache](https://github.com/fbettega/MTG_decklistcache) | Open dataset aggregating MTGO, Melee, TopDeck, Manatraders, CardsRealm. It updates daily and has no same-day events. |
+| Same-day MTGO | [mtgo.com decklists](https://www.mtgo.com/decklists) | Read only for recent events that are not already stored with a list. |
 | Archetype rules + card colors | [MTGOFormatData](https://github.com/Badaro/MTGOFormatData) | Vendored under `data/mtgoformatdata/` (+ local overrides in `data/rule-overrides/`) |
 | Card images / oracle / prices | [Scryfall API](https://scryfall.com/docs/api) | Official, keyless |
 | Gameplay videos | YouTube Data API v3 | Optional, needs `YOUTUBE_API_KEY` (lazy, on-demand) |

@@ -163,8 +163,14 @@ export interface SnapshotCoverage {
    * snapshot still publishes and those events keep any previously stored facts.
    */
   mtgo: "ok" | "skipped" | "unavailable" | "partial";
-  /** Events skipped by this scrape. Present when mtgo is "partial". */
+  /** Events fetched this run that did not import. Present when mtgo is "partial". */
   mtgoMissed?: number;
+  /** Events never requested because the scrape budget or request cap ran out. */
+  mtgoUnattempted?: number;
+  /** Public URL and reason for each miss. Omitted when empty so the snapshot stays valid JSON. */
+  mtgoMisses?: { slug: string; url: string; reason: string }[];
+  /** Public URL and why the scrape stopped before requesting the event. */
+  mtgoUnattemptedEvents?: { slug: string; url: string; reason: string }[];
 }
 
 export interface SnapshotBody {

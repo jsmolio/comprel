@@ -5,6 +5,7 @@ import path from "node:path";
 import test from "node:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
+import { CoverageNote } from "../src/components/CoverageNote";
 import { MissingSnapshot } from "../src/components/MissingSnapshot";
 import { ShareChart } from "../src/components/ShareChart";
 import { TrendBadge } from "../src/components/TrendBadge";
@@ -127,6 +128,30 @@ test("missing snapshot and chart controls render explicit states", () => {
   );
   assert.match(chart, /Total meta/);
   assert.match(chart, /Top 10 decks/);
+});
+
+test("the coverage banner separates misses from events the budget did not request", () => {
+  const base = {
+    complete: true,
+    requestedDays: 5,
+    discovered: 10,
+    ingested: 10,
+    failed: 0,
+    emptyFiles: 0,
+    newestFolderDate: "2026-11-11",
+    oldestFolderDate: "2026-11-07",
+    cacheLagDays: 0,
+    mtgo: "partial" as const,
+  };
+  const left = renderToStaticMarkup(createElement(CoverageNote, { coverage: { ...base, mtgoMissed: 0, mtgoUnattempted: 18 } }));
+  assert.match(left, /18/);
+  assert.match(left, /unattempted/);
+  assert.doesNotMatch(left, /missed/);
+  const both = renderToStaticMarkup(
+    createElement(CoverageNote, { coverage: { ...base, mtgoMissed: 2, mtgoUnattempted: 4 } }),
+  );
+  assert.match(both, /missed 2/);
+  assert.match(both, /left 4/);
 });
 
 test("public ingest route is closed", async () => {

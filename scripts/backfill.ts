@@ -11,7 +11,7 @@ try {
 
 import fs from "node:fs";
 import path from "node:path";
-import { mergeStoredLists, preserveArchetypes } from "../src/lib/facts/boards";
+import { boardUseful, mergeStoredLists, preserveArchetypes } from "../src/lib/facts/boards";
 import { classifierVersion } from "../src/lib/facts/classifier-version";
 import { buildSnapshotBody } from "../src/lib/facts/compute";
 import { syncBansToExtras } from "../src/lib/facts/bans";
@@ -22,7 +22,7 @@ import { decidePublish } from "../src/lib/facts/publish-policy";
 import { FactStore, withPublishLock } from "../src/lib/facts/store";
 import type { SnapshotCoverage, VideosState } from "../src/lib/facts/types";
 import { VIDEO_MAX_RESULTS, refreshVideoState, selectVideoTargets, videoHorizonStart } from "../src/lib/facts/videos";
-import { importMtgo } from "../src/lib/sources/mtgo";
+import { importMtgo, type MtgoKnowledge } from "../src/lib/sources/mtgo";
 import { searchYoutube } from "../src/lib/sources/youtube-search";
 import { discoverRecentCacheFiles, SOURCE_LABELS, type DiscoveredCacheFile } from "../src/lib/sources/mtgodecklistcache";
 import { FORMATS, type Format, type RawCacheItem } from "../src/lib/types";
@@ -152,6 +152,7 @@ async function main() {
     let written = 0;
     let skipped = 0;
     let finished = 0;
+    const mtgoLists = new Set<string>();
     const started = Date.now();
 
     await mapPool(files, async (file) => {
@@ -176,6 +177,9 @@ async function main() {
       const item = fetched.item;
       const stableId = file.fullPath.split("/").pop()!.replace(/\.json$/i, "");
       const normalized = normalizeCacheItem(file.label, stableId, item, allow, version, file.fullPath);
+      if (normalized && file.label === "mtgo.com" && Object.values(normalized.boards).some(boardUseful)) {
+        mtgoLists.add(stableId);
+      }
       if (normalized) {
         const put = store.putEvent(normalized.event);
         if (put.changed) written++;
@@ -196,11 +200,24 @@ async function main() {
 
     let mtgo: SnapshotCoverage["mtgo"] = noMtgo ? "skipped" : "ok";
     let mtgoMissed = 0;
+    let mtgoUnattempted = 0;
+    let mtgoMisses: SnapshotCoverage["mtgoMisses"];
+    let mtgoUnattemptedEvents: SnapshotCoverage["mtgoUnattemptedEvents"];
     if (!noMtgo && failed.length === 0) {
       log("→ Scraping MTGO for same-day events…");
+      const known = (slug: string): MtgoKnowledge => {
+        if (mtgoLists.has(slug)) return "lists";
+        const event = store.readEvent(`mtgo.com:${slug}`);
+        if (!event) return "absent";
+        const boards = store.readBoards(event.id);
+        if (boards && Object.values(boards).some(boardUseful)) return "lists";
+        const named = event.decks.some((deck) => deck.archetype && !deck.archetype.endsWith("Unknown"));
+        return event.deckCount > 0 && named ? "lists" : "empty";
+      };
       const scraped = await importMtgo({
         days: Math.min(days, 4),
         log,
+        known,
         onItem: (item, slug, format) => {
           const inSlug = slug.match(/(\d{4})-(\d{2})-(\d{2})/);
           const date = new Date(item.Tournament.Date);
@@ -217,9 +234,14 @@ async function main() {
         },
       });
       if (scraped.structuralFailure) mtgo = "unavailable";
-      else if (scraped.errors > 0) {
+      else if (scraped.errors > 0 || scraped.unattempted.length > 0) {
         mtgo = "partial";
         mtgoMissed = scraped.errors;
+        mtgoUnattempted = scraped.unattempted.length;
+        if (scraped.misses.length) {
+          mtgoMisses = scraped.misses.map((miss) => ({ slug: miss.slug, url: miss.url, reason: miss.reason }));
+        }
+        if (scraped.unattempted.length) mtgoUnattemptedEvents = scraped.unattempted;
       }
     }
 
@@ -304,7 +326,12 @@ async function main() {
       cacheLagDays: lagDays(span.newest, now),
       mtgo,
     };
-    if (mtgo === "partial") coverage.mtgoMissed = mtgoMissed;
+    if (mtgo === "partial") {
+      coverage.mtgoMissed = mtgoMissed;
+      coverage.mtgoUnattempted = mtgoUnattempted;
+      if (mtgoMisses) coverage.mtgoMisses = mtgoMisses;
+      if (mtgoUnattemptedEvents) coverage.mtgoUnattemptedEvents = mtgoUnattemptedEvents;
+    }
     if (coverage.cacheLagDays != null && coverage.cacheLagDays > 2) {
       log(`  ! newest cache folder is ${coverage.cacheLagDays} days behind ${now.toISOString().slice(0, 10)}`);
     }
