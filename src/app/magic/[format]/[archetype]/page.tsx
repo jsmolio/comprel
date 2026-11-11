@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { getArchetypeDetail, getArchetypeVideos, getBanMarkers, getCardMap, normalizeSource, normalizeWindow } from "@/lib/queries";
+import { archetypeDetail, archetypeVideos, banMarkers, cardMap, normalizeSource, normalizeWindow } from "@/lib/queries";
 import { resolveFormat } from "@/lib/slug";
 import { colorNameToId } from "@/lib/archetype/colors";
 import { FormatTabs } from "@/components/FormatTabs";
@@ -12,7 +12,7 @@ import { CollapsibleDecks } from "@/components/CollapsibleDecks";
 import { SignatureCards } from "@/components/SignatureCards";
 import { VideoSection } from "@/components/VideoSection";
 import { MissingSnapshot } from "@/components/MissingSnapshot";
-import { loadPublished } from "@/lib/published/load";
+import { loadMagicCards, loadMagicFormatView, loadMagicIndex } from "@/lib/published/magic";
 import { ColorPips } from "@/components/ColorPips";
 import { TrendBadge } from "@/components/TrendBadge";
 import { ShareChart } from "@/components/ShareChart";
@@ -27,8 +27,8 @@ export default async function ArchetypePage({
   searchParams: Promise<{ window?: string; source?: string }>;
 }) {
   const { format: formatSlug, archetype: archetypeSlug } = await params;
-  const loaded = loadPublished();
-  if (!loaded.ok) return <MissingSnapshot reason={loaded.reason} />;
+  const index = loadMagicIndex();
+  if (!index.ok) return <MissingSnapshot reason={index.reason} />;
 
   const format = resolveFormat(formatSlug);
   if (!format) notFound();
@@ -36,9 +36,11 @@ export default async function ArchetypePage({
   const sp = await searchParams;
   const windowDays = normalizeWindow(sp.window);
   const source = normalizeSource(sp.source);
+  const loaded = loadMagicFormatView(format, windowDays, source, { lists: true });
+  if (!loaded.ok) return <MissingSnapshot reason={loaded.reason} />;
   const slug = format.toLowerCase();
 
-  const detail = await getArchetypeDetail(format, windowDays, source, archetypeSlug);
+  const detail = archetypeDetail(loaded.snapshot, format, windowDays, source, archetypeSlug, loaded.archetypes);
   if (!detail) notFound();
 
   const names = new Set<string>();
@@ -46,12 +48,12 @@ export default async function ArchetypePage({
     for (const c of d.mainboard) names.add(c.name);
     for (const c of d.sideboard) names.add(c.name);
   }
-  const [cardMap, videos, banMarkers] = await Promise.all([
-    getCardMap([...names]),
-    getArchetypeVideos(format, detail.archetype),
-    getBanMarkers(format),
-  ]);
-  const cards = cardMap as unknown as CardMap;
+  const cardsLoaded = loadMagicCards();
+  if (!cardsLoaded.ok) return <MissingSnapshot reason={cardsLoaded.reason} />;
+  const cardLookup = cardMap(cardsLoaded.snapshot, [...names]);
+  const videos = archetypeVideos(index.snapshot, format, detail.archetype);
+  const markers = banMarkers(index.snapshot, format);
+  const cards = cardLookup as unknown as CardMap;
 
   // The 3 cards that best represent the deck: the most widely-played nonland,
   // non-basic cards across the shown lists (spells/creatures define an archetype
@@ -160,7 +162,7 @@ export default async function ArchetypePage({
             decks. Amber lines mark B&amp;R announcements affecting {format}.
           </p>
         </div>
-        <ShareChart points={detail.timeline} format={format} bans={banMarkers} />
+        <ShareChart points={detail.timeline} format={format} bans={markers} />
       </section>
 
       <section className="space-y-3">
@@ -191,7 +193,7 @@ export default async function ArchetypePage({
         format={format}
         archetype={detail.archetype}
         initialVideos={videos}
-        stale={loaded.snapshot.videosState === "degraded"}
+        stale={index.snapshot.videosState === "degraded"}
       />
 
       <section className="space-y-2">

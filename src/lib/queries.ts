@@ -1,7 +1,8 @@
 import { BANS } from "./banlist";
 import { sliceKey } from "./facts/compute";
-import type { FormatSnap, SnapMatchup, SnapRow, Snapshot } from "./facts/types";
-import { loadPublished } from "./published/load";
+import type { CardSnap, FormatSnap, SnapMatchup, SnapRow, Snapshot, StoredBanEvent, StoredVideo } from "./facts/types";
+import type { MagicHomeEntry } from "./published/magic";
+import { loadMagicCards, loadMagicFormatView, loadMagicIndex } from "./published/magic";
 import { slugify } from "./slug";
 import {
   DEFAULT_SOURCE,
@@ -124,12 +125,6 @@ export interface VideoView {
   publishedAt: Date | null;
 }
 
-function requireSnapshot(): Snapshot {
-  const loaded = loadPublished();
-  if (!loaded.ok) throw new Error(loaded.reason);
-  return loaded.snapshot;
-}
-
 function formatSnap(snapshot: Snapshot, format: Format): FormatSnap | undefined {
   return snapshot.formats.find((f) => f.format === format);
 }
@@ -154,6 +149,16 @@ function asDate(value: string | null | undefined): Date | null {
   return Number.isNaN(date.getTime()) ? null : date;
 }
 
+export function summariesFromHome(home: MagicHomeEntry[]): FormatSummary[] {
+  return home.map((entry) => ({
+    format: entry.format,
+    decks: entry.totalDecks,
+    archetypes: entry.archetypeCount,
+    latest: asDate(entry.latest),
+    top: entry.top.map(toRow),
+  }));
+}
+
 export function formatSummaries(snapshot: Snapshot): FormatSummary[] {
   return FORMATS.map((format) => {
     const snap = formatSnap(snapshot, format);
@@ -170,15 +175,19 @@ export function formatSummaries(snapshot: Snapshot): FormatSummary[] {
 }
 
 export async function getFormatSummaries(): Promise<FormatSummary[]> {
-  return formatSummaries(requireSnapshot());
+  const loaded = loadMagicIndex();
+  if (!loaded.ok) throw new Error(loaded.reason);
+  return summariesFromHome(loaded.snapshot.home);
 }
 
-export function lastRefresh(snapshot: Snapshot): Date | null {
+export function lastRefresh(snapshot: { publishedAt: string }): Date | null {
   return asDate(snapshot.publishedAt);
 }
 
 export async function getLastRefresh(): Promise<Date | null> {
-  return lastRefresh(requireSnapshot());
+  const loaded = loadMagicIndex();
+  if (!loaded.ok) throw new Error(loaded.reason);
+  return lastRefresh(loaded.snapshot);
 }
 
 export function metaBreakdown(snapshot: Snapshot, format: Format, windowDays: number, source: SourceFilter): MetaBreakdown {
@@ -192,7 +201,9 @@ export function metaBreakdown(snapshot: Snapshot, format: Format, windowDays: nu
 }
 
 export async function getMetaBreakdown(format: Format, windowDays: number, source: SourceFilter): Promise<MetaBreakdown> {
-  return metaBreakdown(requireSnapshot(), format, windowDays, source);
+  const loaded = loadMagicFormatView(format, windowDays, source);
+  if (!loaded.ok) throw new Error(loaded.reason);
+  return metaBreakdown(loaded.snapshot, format, windowDays, source);
 }
 
 function cellOf(matchup: SnapMatchup): MatrixCell {
@@ -232,7 +243,9 @@ export function matchupMatrix(snapshot: Snapshot, format: Format, windowDays: nu
 }
 
 export async function getMatchupMatrix(format: Format, windowDays: number, source: SourceFilter, topN = 12): Promise<MatchupMatrix> {
-  return matchupMatrix(requireSnapshot(), format, windowDays, source, topN);
+  const loaded = loadMagicFormatView(format, windowDays, source);
+  if (!loaded.ok) throw new Error(loaded.reason);
+  return matchupMatrix(loaded.snapshot, format, windowDays, source, topN);
 }
 
 function archetypeNames(snap: FormatSnap | undefined): string[] {
@@ -249,9 +262,10 @@ export function archetypeDetail(
   windowDays: number,
   source: SourceFilter,
   slug: string,
+  names?: readonly string[],
 ): ArchetypeDetail | null {
   const snap = formatSnap(snapshot, format);
-  const archetype = archetypeNames(snap).find((name) => slugify(name) === slug);
+  const archetype = (names ?? archetypeNames(snap)).find((name) => slugify(name) === slug);
   if (!archetype || !snap) return null;
   const slice = snap.slices[sliceKey(windowDays, source)];
   const row = slice?.rows.find((r) => r.archetype === archetype) ?? null;
@@ -304,10 +318,12 @@ export async function getArchetypeDetail(
   source: SourceFilter,
   slug: string,
 ): Promise<ArchetypeDetail | null> {
-  return archetypeDetail(requireSnapshot(), format, windowDays, source, slug);
+  const loaded = loadMagicFormatView(format, windowDays, source, { lists: true });
+  if (!loaded.ok) throw new Error(loaded.reason);
+  return archetypeDetail(loaded.snapshot, format, windowDays, source, slug, loaded.archetypes);
 }
 
-export function cardMap(snapshot: Snapshot, names: string[]) {
+export function cardMap(snapshot: { cards: Record<string, CardSnap> }, names: string[]) {
   const map = new Map<string, { imageUrl: string | null; typeLine: string | null; manaCost: string | null; priceUsd: string | null }>();
   for (const name of names) {
     const card = snapshot.cards[name];
@@ -318,10 +334,12 @@ export function cardMap(snapshot: Snapshot, names: string[]) {
 }
 
 export async function getCardMap(names: string[]) {
-  return cardMap(requireSnapshot(), names);
+  const loaded = loadMagicCards();
+  if (!loaded.ok) throw new Error(loaded.reason);
+  return cardMap(loaded.snapshot, names);
 }
 
-export function archetypeVideos(snapshot: Snapshot, format: Format, archetype: string): VideoView[] {
+export function archetypeVideos(snapshot: { videos: StoredVideo[] }, format: Format, archetype: string): VideoView[] {
   return snapshot.videos
     .filter((video) => video.format === format && video.archetype === archetype)
     .sort((a, b) => (b.publishedAt ?? "").localeCompare(a.publishedAt ?? ""))
@@ -336,10 +354,12 @@ export function archetypeVideos(snapshot: Snapshot, format: Format, archetype: s
 }
 
 export async function getArchetypeVideos(format: Format, archetype: string): Promise<VideoView[]> {
-  return archetypeVideos(requireSnapshot(), format, archetype);
+  const loaded = loadMagicIndex();
+  if (!loaded.ok) throw new Error(loaded.reason);
+  return archetypeVideos(loaded.snapshot, format, archetype);
 }
 
-export function banMarkers(snapshot: Snapshot, format: Format): BanMarker[] {
+export function banMarkers(snapshot: { banEvents: StoredBanEvent[] }, format: Format): BanMarker[] {
   const byDate = new Map<string, Map<Format, string[]>>();
   const add = (date: string, f: Format, label: string) => {
     if (!byDate.has(date)) byDate.set(date, new Map());
@@ -362,7 +382,9 @@ export function banMarkers(snapshot: Snapshot, format: Format): BanMarker[] {
 }
 
 export async function getBanMarkers(format: Format): Promise<BanMarker[]> {
-  return banMarkers(requireSnapshot(), format);
+  const loaded = loadMagicIndex();
+  if (!loaded.ok) throw new Error(loaded.reason);
+  return banMarkers(loaded.snapshot, format);
 }
 
 export function snapshotHasArchetype(snapshot: Snapshot, format: Format, archetype: string): boolean {

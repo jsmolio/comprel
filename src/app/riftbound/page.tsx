@@ -5,7 +5,7 @@ import { MetaShareTable } from "@/components/MetaShareTable";
 import { MissingSnapshot } from "@/components/MissingSnapshot";
 import { SourceToggle } from "@/components/SourceToggle";
 import { WindowToggle } from "@/components/WindowToggle";
-import { loadPublished } from "@/lib/published/load";
+import { loadRiftboundIndex, loadRiftboundMetaView } from "@/lib/published/riftbound";
 import { ALL_ERA } from "@/lib/riftbound/eras";
 import {
   normalizeEra,
@@ -16,7 +16,6 @@ import {
   riftboundTotal,
 } from "@/lib/riftbound/read";
 import { RIFTBOUND_SOURCE_LABELS, RIFTBOUND_SOURCES } from "@/lib/riftbound/sources";
-import { RIFTBOUND_SNAPSHOT_PATH, type RiftboundSnapshot } from "@/lib/riftbound/paths";
 import { fmtDate } from "@/lib/ui";
 
 export const metadata = {
@@ -29,7 +28,20 @@ export default async function RiftboundPage({
 }: {
   searchParams: Promise<{ window?: string; source?: string; era?: string }>;
 }) {
-  const loaded = loadPublished<RiftboundSnapshot>(RIFTBOUND_SNAPSHOT_PATH, "data/published/riftbound/snapshot.json");
+  const sp = await searchParams;
+  const windowDays = normalizeRiftboundWindow(sp.window);
+  const source = normalizeRiftboundSource(sp.source);
+  const index = loadRiftboundIndex();
+  if (!index.ok) {
+    return (
+      <MissingSnapshot
+        reason={index.reason}
+        note="Build the first Riftbound snapshot with pnpm backfill --game=riftbound --days=90. That command is not run by loading this page. Magic's snapshot is separate."
+      />
+    );
+  }
+  const era = normalizeEra(sp.era, index.snapshot.eras);
+  const loaded = loadRiftboundMetaView(windowDays, source, era);
   if (!loaded.ok) {
     return (
       <MissingSnapshot
@@ -39,10 +51,6 @@ export default async function RiftboundPage({
     );
   }
   const snapshot = loaded.snapshot;
-  const sp = await searchParams;
-  const windowDays = normalizeRiftboundWindow(sp.window);
-  const source = normalizeRiftboundSource(sp.source);
-  const era = normalizeEra(sp.era, snapshot.eras);
   const extra = era === ALL_ERA ? undefined : { era };
   const rows = riftboundRows(snapshot, windowDays, source, era);
   const matrix = riftboundMatrix(snapshot, windowDays, source, era, 12);

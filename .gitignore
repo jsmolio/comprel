@@ -50,4 +50,6 @@ next-env.d.ts
 data/facts/v1/.lock
 data/facts/riftbound/v1/.lock
 data/**/*.tmp
+data/published/*.staging-*
+data/published/*.prev-*
 data/cache/

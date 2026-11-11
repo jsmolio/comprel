@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
-import { getMatchupMatrix, getMetaBreakdown, normalizeSource, normalizeWindow } from "@/lib/queries";
+import { matchupMatrix, metaBreakdown, normalizeSource, normalizeWindow } from "@/lib/queries";
 import { MissingSnapshot } from "@/components/MissingSnapshot";
-import { loadPublished } from "@/lib/published/load";
+import { loadMagicFormatView, loadMagicIndex } from "@/lib/published/magic";
 import { resolveFormat } from "@/lib/slug";
 import { FormatTabs } from "@/components/FormatTabs";
 import { WindowToggle } from "@/components/WindowToggle";
@@ -18,8 +18,8 @@ export default async function FormatPage({
   searchParams: Promise<{ window?: string; source?: string }>;
 }) {
   const { format: formatSlug } = await params;
-  const loaded = loadPublished();
-  if (!loaded.ok) return <MissingSnapshot reason={loaded.reason} />;
+  const index = loadMagicIndex();
+  if (!index.ok) return <MissingSnapshot reason={index.reason} />;
 
   const format = resolveFormat(formatSlug);
   if (!format) notFound();
@@ -27,13 +27,13 @@ export default async function FormatPage({
   const sp = await searchParams;
   const windowDays = normalizeWindow(sp.window);
   const source = normalizeSource(sp.source);
+  const loaded = loadMagicFormatView(format, windowDays, source);
+  if (!loaded.ok) return <MissingSnapshot reason={loaded.reason} />;
   const slug = format.toLowerCase();
   const basePath = `/magic/${slug}`;
 
-  const [breakdown, matrix] = await Promise.all([
-    getMetaBreakdown(format, windowDays, source),
-    getMatchupMatrix(format, windowDays, source, 12),
-  ]);
+  const breakdown = metaBreakdown(loaded.snapshot, format, windowDays, source);
+  const matrix = matchupMatrix(loaded.snapshot, format, windowDays, source, 12);
 
   return (
     <div className="space-y-8">

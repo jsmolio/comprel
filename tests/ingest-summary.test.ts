@@ -111,21 +111,20 @@ test("report writes the runner summary file and the log", () => {
   }
 });
 
-test("the ingest workflow copies both summaries into the job summary and records step failure", () => {
+test("the ingest workflow copies each game summary into that job and cannot skip the commit", () => {
   const yml = fs.readFileSync(".github/workflows/ingest.yml", "utf8");
   assert.match(yml, /GITHUB_STEP_SUMMARY/);
-  assert.match(yml, /for game in magic riftbound/);
   assert.match(yml, /comprel-ingest-\$\{game\}\.md/);
-  assert.equal(INGEST_SUMMARY_FILES.magic, "comprel-ingest-magic.md");
-  assert.equal(INGEST_SUMMARY_FILES.riftbound, "comprel-ingest-riftbound.md");
   assert.match(yml, /Magic publish failed \(continue-on-error\)/);
   assert.match(yml, /Riftbound publish failed \(continue-on-error\)/);
-  assert.match(yml, /steps\.magic\.outcome/);
-  assert.match(yml, /steps\.riftbound\.outcome/);
+  assert.match(yml, /steps\.publish\.outcome/);
   assert.doesNotMatch(yml, /if:\s*always\(\)/);
+  assert.equal(INGEST_SUMMARY_FILES.magic, "comprel-ingest-magic.md");
+  assert.equal(INGEST_SUMMARY_FILES.riftbound, "comprel-ingest-riftbound.md");
   const summary = yml.indexOf("Record ingest diagnostics");
-  const rift = yml.indexOf("pnpm backfill --incremental --game=riftbound");
+  const upload = yml.indexOf("Upload published data");
   const commit = yml.indexOf("git push");
-  assert.ok(summary > rift && summary < commit);
+  assert.ok(summary > 0 && upload > summary && commit > upload);
+  assert.match(yml.slice(summary, upload), /continue-on-error:\s*true/);
   assert.match(yml, /cron: "0 \*\/2 \* \* \*"/);
 });

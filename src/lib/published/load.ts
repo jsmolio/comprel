@@ -1,19 +1,11 @@
 import fs from "node:fs";
-import path from "node:path";
-import type { Snapshot } from "../facts/types";
-
-export const SNAPSHOT_PATH = path.join(process.cwd(), "data", "published", "snapshot.json");
-
-export type LoadedSnapshot =
-  | { ok: true; snapshot: Snapshot }
-  | { ok: false; reason: string };
 
 const cached = new Map<string, { mtimeMs: number; snapshot: { schemaVersion: number; status: string } }>();
 
-/** Read a published snapshot. Never opens a database connection. */
-export function loadPublished<T extends { schemaVersion: number; status: string } = Snapshot>(
-  file = SNAPSHOT_PATH,
-  label = "data/published/snapshot.json",
+/** Read one published JSON file. Never opens a database connection. */
+export function loadPublished<T extends { schemaVersion: number; status: string }>(
+  file: string,
+  label = file,
 ): { ok: true; snapshot: T } | { ok: false; reason: string } {
   if (!fs.existsSync(file)) {
     return {

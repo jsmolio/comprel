@@ -1,4 +1,4 @@
-// Rebuild data/published/snapshot.json from the local fact log. No network, no database.
+// Rebuild data/published/magic from the local fact log. No network, no database.
 
 import { classifierVersion } from "../src/lib/facts/classifier-version";
 import { publishSnapshot } from "../src/lib/facts/publish";

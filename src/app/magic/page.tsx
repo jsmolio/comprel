@@ -1,16 +1,18 @@
 import Link from "next/link";
-import { getFormatSummaries, getLastRefresh } from "@/lib/queries";
+import { summariesFromHome } from "@/lib/queries";
 import { ColorPips } from "@/components/ColorPips";
 import { MissingSnapshot } from "@/components/MissingSnapshot";
 import { TrendBadge } from "@/components/TrendBadge";
 import { colorNameToId } from "@/lib/archetype/colors";
-import { loadPublished } from "@/lib/published/load";
+import { loadMagicIndex } from "@/lib/published/magic";
 import { fmtDate, formatArchetype, pct, timeAgo } from "@/lib/ui";
 
 export default async function Home() {
-  const loaded = loadPublished();
+  const loaded = loadMagicIndex();
   if (!loaded.ok) return <MissingSnapshot reason={loaded.reason} />;
-  const [summaries, lastRefresh] = await Promise.all([getFormatSummaries(), getLastRefresh()]);
+  const summaries = summariesFromHome(loaded.snapshot.home);
+  const lastRefresh = loaded.snapshot.publishedAt ? new Date(loaded.snapshot.publishedAt) : null;
+  const refreshed = lastRefresh && !Number.isNaN(lastRefresh.getTime()) ? lastRefresh : null;
 
   return (
     <div className="space-y-10">
@@ -22,9 +24,9 @@ export default async function Home() {
           Live metagame share, tournament decklists, and head-to-head matchup win rates computed from real pairing data
           across every competitive format.
         </p>
-        {lastRefresh && (
+        {refreshed && (
           <p className="text-xs text-neutral-500">
-            Auto-updates every ~2 hours · data last refreshed {timeAgo(lastRefresh)}.
+            Auto-updates every ~2 hours · data last refreshed {timeAgo(refreshed)}.
           </p>
         )}
         <div className="grid max-w-3xl gap-3 sm:grid-cols-2">
