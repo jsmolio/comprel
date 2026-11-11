@@ -6,13 +6,26 @@ export function CoverageNote({ coverage }: { coverage?: SnapshotCoverage }) {
   const stale = coverage.cacheLagDays != null && coverage.cacheLagDays > 2;
   const mtgoDown = coverage.mtgo === "unavailable";
   const mtgoPartial = coverage.mtgo === "partial";
+  const budgetLeft = coverage.mtgoUnattemptedEvents
+    ? coverage.mtgoUnattemptedEvents.filter((event) => event.reason === "budget").length
+    : (coverage.mtgoUnattempted ?? 0);
   if (!stale && !mtgoDown && !mtgoPartial) return null;
   return (
     <p className="max-w-2xl rounded-lg border border-amber-900/60 bg-amber-950/30 px-3 py-2 text-xs leading-5 text-amber-100/90">
       {mtgoPartial && (
         <>
-          Same-day MTGO scrape missed {coverage.mtgoMissed ?? "some"} event
-          {(coverage.mtgoMissed ?? 2) === 1 ? "" : "s"}. Previously stored results for those events are unchanged.{" "}
+          {(coverage.mtgoMissed ?? 0) > 0 && (
+            <>
+              Same-day MTGO scrape missed {coverage.mtgoMissed} event
+              {coverage.mtgoMissed === 1 ? "" : "s"}.{" "}
+            </>
+          )}
+          {budgetLeft > 0 && (
+            <>
+              The scrape budget left {budgetLeft} event{budgetLeft === 1 ? "" : "s"} unattempted.{" "}
+            </>
+          )}
+          Previously stored results for events that were not imported this run are unchanged.{" "}
         </>
       )}
       {mtgoDown && (

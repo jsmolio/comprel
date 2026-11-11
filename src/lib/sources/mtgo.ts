@@ -24,6 +24,14 @@ export interface MtgoMiss {
   detail: string;
 }
 
+export type MtgoKnowledge = "absent" | "empty" | "lists";
+
+export interface MtgoUnattempted {
+  slug: string;
+  url: string;
+  reason: "budget" | "request-limit";
+}
+
 export type MtgoPageFetch =
   | { kind: "ok"; status: number; html: string }
   | { kind: "http"; status: number }
@@ -45,27 +53,18 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 // has a hard workflow timeout); abort any single request after this long.
 const FETCH_TIMEOUT_MS = 15_000;
 
-// Bail out of the event loop once the scrape has run this long; leftovers are
-// picked up by the next cycle (or land via the volunteer cache anyway).
+// Bail out of the event loop once the scrape has run this long. Events not
+// started yet are unattempted, not misses. One request at a time.
 const SCRAPE_BUDGET_MS = 6 * 60_000;
 
-/**
- * Fetch with retries on network errors and transient (5xx/429) responses. Returns
- * the Response — even a final non-ok one, so the caller can distinguish a 404 — or
- * null if every attempt threw at the network level.
- */
-async function tryFetch(url: string, attempts = 3): Promise<Response | null> {
-  for (let a = 0; a < attempts; a++) {
-    try {
-      const res = await fetch(url, { headers: UA, signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
-      if (res.ok || res.status === 404 || a === attempts - 1) return res;
-    } catch {
-      if (a === attempts - 1) return null;
-    }
-    await sleep(700 * (a + 1));
-  }
-  return null;
-}
+// Two tries for a timeout or a 200 with no embedded decklist. A parsed page
+// that lists zero decks is not retried: that publication is empty.
+const EVENT_ATTEMPTS = 2;
+const INDEX_ATTEMPTS = 3;
+const EVENT_BACKOFF_MS = 1_000;
+
+// Fast failures must not walk the whole index. Hangs hit the time budget first.
+const MAX_EVENT_REQUESTS = 80;
 
 // Leading slug token -> tracked format. Others (premodern, contraption, …) are skipped.
 const FORMAT_PREFIX: Record<string, Format> = {
@@ -194,9 +193,57 @@ export interface MtgoImportResult {
   decks: number;
   errors: number;
   misses: MtgoMiss[];
-  // True only for a real, actionable break (listing 404 = URL moved, or events found
-  // but none imported = page structure changed). Per-event misses are not structural.
+  /** Index events already stored with a non-empty list. Not fetched and not misses. */
+  skippedStored: number;
+  /** Not requested. Separate from misses. */
+  unattempted: MtgoUnattempted[];
+  requests: number;
+  // Listing 404, a listing with no decklist links, or every fetched page was a
+  // 200 whose decklist embed was missing. Timeouts, HTTP errors, and empty
+  // decklists are partial misses and do not block publish.
   structuralFailure: boolean;
+}
+
+export function mtgoSlugDay(slug: string): string | null {
+  return slug.match(/(\d{4}-\d{2}-\d{2})/)?.[1] ?? null;
+}
+
+/**
+ * Same-day events go first (never stored, then stored without a list), then older
+ * unseen events, then older events stored without a list. Events with a list are omitted.
+ */
+export function prioritizeMtgoSlugs(
+  slugs: string[],
+  known: (slug: string) => MtgoKnowledge,
+  today: string,
+): { queue: string[]; skippedStored: string[] } {
+  const skippedStored: string[] = [];
+  const queue: { slug: string; day: string; rank: number }[] = [];
+  for (const slug of slugs) {
+    const state = known(slug);
+    if (state === "lists") {
+      skippedStored.push(slug);
+      continue;
+    }
+    const day = mtgoSlugDay(slug) ?? "";
+    const sameDay = day === today;
+    const rank = sameDay ? (state === "absent" ? 0 : 1) : state === "absent" ? 2 : 3;
+    queue.push({ slug, day, rank });
+  }
+  queue.sort((a, b) => a.rank - b.rank || b.day.localeCompare(a.day) || a.slug.localeCompare(b.slug));
+  return { queue: queue.map((row) => row.slug), skippedStored };
+}
+
+function describeFetch(page: MtgoPageFetch): string {
+  if (page.kind === "timeout") return "timeout";
+  if (page.kind === "network") return page.detail || "network";
+  if (page.kind === "http") return `HTTP ${page.status}`;
+  return "ok";
+}
+
+function retryableFetch(page: MtgoPageFetch): boolean {
+  if (page.kind === "timeout" || page.kind === "network") return true;
+  return page.kind === "http" && page.status !== 404 && (page.status === 429 || page.status >= 500);
 }
 
 async function defaultFetchPage(url: string): Promise<MtgoPageFetch> {
@@ -220,63 +267,100 @@ export async function importMtgo(
     dryRun?: boolean;
     /** When set, events are handed to the caller instead of written to Postgres. */
     onItem?: (item: RawCacheItem, slug: string, format: Format) => Promise<void> | void;
-    /** Test hook. Default fetches mtgo.com. */
+    /** Test hook. Default fetches mtgo.com. One request at a time. */
     fetchPage?: (url: string) => Promise<MtgoPageFetch>;
+    /** `lists` events are not fetched. Default treats every slug as unseen. */
+    known?: (slug: string) => MtgoKnowledge;
+    /** UTC day used for same-day priority. */
+    today?: string;
+    now?: () => number;
+    budgetMs?: number;
+    maxEventRequests?: number;
+    sleep?: (ms: number) => Promise<void>;
   } = {},
 ): Promise<MtgoImportResult> {
   const days = opts.days ?? 4;
   const log = opts.log ?? (() => {});
   const allow = new Set<Format>(FORMATS);
-  const result: MtgoImportResult = { indexOk: false, found: 0, events: 0, decks: 0, errors: 0, misses: [], structuralFailure: false };
+  const known = opts.known ?? (() => "absent" as const);
+  const clock = opts.now ?? Date.now;
+  const pause = opts.sleep ?? sleep;
+  const budgetMs = opts.budgetMs ?? SCRAPE_BUDGET_MS;
+  const maxEventRequests = opts.maxEventRequests ?? MAX_EVENT_REQUESTS;
+  const result: MtgoImportResult = {
+    indexOk: false,
+    found: 0,
+    events: 0,
+    decks: 0,
+    errors: 0,
+    misses: [],
+    skippedStored: 0,
+    unattempted: [],
+    requests: 0,
+    structuralFailure: false,
+  };
   const fetchPage = opts.fetchPage ?? defaultFetchPage;
 
-  let indexHtml = "";
-  if (opts.fetchPage) {
-    const page = await opts.fetchPage(INDEX_URL);
-    if (page.kind !== "ok") {
-      result.structuralFailure = page.kind === "http" && page.status === 404;
-      log(
-        result.structuralFailure
-          ? "  ! MTGO listing returned 404 — the decklists URL changed; needs a code fix"
-          : "  ! MTGO listing unreachable — transient, skipping this cycle",
-      );
+  let indexPage: MtgoPageFetch = { kind: "network", detail: "no attempt" };
+  for (let attempt = 0; attempt < INDEX_ATTEMPTS; attempt++) {
+    indexPage = await fetchPage(INDEX_URL);
+    if (indexPage.kind === "http" && indexPage.status === 404) {
+      result.structuralFailure = true;
+      log("  ! MTGO listing returned 404 — the decklists URL changed; needs a code fix");
       return result;
     }
-    indexHtml = page.html;
-  } else {
-    const idxRes = await tryFetch(INDEX_URL);
-    if (!idxRes || !idxRes.ok) {
-      const is404 = idxRes?.status === 404;
-      result.structuralFailure = is404; // 404 = listing URL moved (actionable); transient/5xx = not
-      log(
-        is404
-          ? "  ! MTGO listing returned 404 — the decklists URL changed; needs a code fix"
-          : `  ! MTGO listing unreachable (${idxRes ? `HTTP ${idxRes.status}` : "network error"}) — transient, skipping this cycle`,
-      );
-      return result;
-    }
-    indexHtml = await idxRes.text();
+    if (!retryableFetch(indexPage) && indexPage.kind === "ok") break;
+    if (!retryableFetch(indexPage) && indexPage.kind === "http") break;
+    if (attempt === INDEX_ATTEMPTS - 1) break;
+    log(`  ! MTGO listing attempt ${attempt + 1} failed (${describeFetch(indexPage)}) — retrying`);
+    await pause(700 * (attempt + 1));
+  }
+  if (indexPage.kind !== "ok") {
+    log(`  ! MTGO listing unreachable after ${INDEX_ATTEMPTS} attempts (${describeFetch(indexPage)}) — transient, skipping this cycle`);
+    return result;
+  }
+  const indexHtml = indexPage.html;
+  if (!/\/decklist\//i.test(indexHtml)) {
+    result.structuralFailure = true;
+    log("  ! MTGO listing returned 200 but no decklist links — the index markup changed");
+    return result;
   }
   result.indexOk = true;
 
+  const today = opts.today ?? new Date(clock()).toISOString().slice(0, 10);
   const slugs = [...new Set([...indexHtml.matchAll(/\/decklist\/([a-z0-9-]+)/gi)].map((m) => m[1].toLowerCase()))];
-  const cutoff = Date.now() - days * 86_400_000;
+  const cutoff = clock() - days * 86_400_000;
   const wanted = slugs.filter((s) => {
     const fmt = FORMAT_PREFIX[s.split("-")[0]];
-    const dm = s.match(/(\d{4}-\d{2}-\d{2})/);
-    return Boolean(fmt) && Boolean(dm) && new Date(dm![1] + "T00:00:00Z").getTime() >= cutoff;
+    const day = mtgoSlugDay(s);
+    return Boolean(fmt) && Boolean(day) && new Date(day + "T00:00:00Z").getTime() >= cutoff;
   });
   result.found = wanted.length;
-  log(`  MTGO: ${wanted.length} recent events in tracked formats`);
+  const ordered = prioritizeMtgoSlugs(wanted, known, today);
+  result.skippedStored = ordered.skippedStored.length;
+  log(
+    `  MTGO: ${wanted.length} recent events in tracked formats; ${ordered.skippedStored.length} already stored with lists, ${ordered.queue.length} to fetch`,
+  );
 
-  const deadline = Date.now() + SCRAPE_BUDGET_MS;
-  let bailedEarly = false;
-  for (const slug of wanted) {
-    if (Date.now() > deadline) {
-      bailedEarly = true;
-      log(`  ! MTGO: scrape time budget exhausted — remaining events resume next cycle`);
+  const deadline = clock() + budgetMs;
+  let stop: MtgoUnattempted["reason"] | null = null;
+  for (let i = 0; i < ordered.queue.length; i++) {
+    if (clock() > deadline) stop = "budget";
+    else if (result.requests >= maxEventRequests) stop = "request-limit";
+    if (stop) {
+      for (const slug of ordered.queue.slice(i)) {
+        const url = mtgoEventUrl(slug);
+        result.unattempted.push({ slug, url, reason: stop });
+        log(`    ! MTGO ${url} unattempted ${stop}`);
+      }
+      log(
+        stop === "budget"
+          ? "  ! MTGO: scrape time budget exhausted — remaining events were not requested"
+          : "  ! MTGO: event request cap reached — remaining events were not requested",
+      );
       break;
     }
+    const slug = ordered.queue[i]!;
     const url = mtgoEventUrl(slug);
     const miss = (reason: MtgoMissReason, detail: string) => {
       result.errors++;
@@ -285,17 +369,19 @@ export async function importMtgo(
     };
     try {
       let page: MtgoPageFetch = { kind: "network", detail: "no attempt" };
-      for (let attempt = 0; attempt < 2; attempt++) {
+      for (let attempt = 0; attempt < EVENT_ATTEMPTS; attempt++) {
+        if (result.requests >= maxEventRequests) break;
         page = await fetchPage(url);
-        if (page.kind === "ok" || page.kind === "http") break;
-        if (attempt === 0) await sleep(700);
+        result.requests++;
+        if (page.kind === "ok") {
+          const diagnosed = diagnoseMtgoHtml(page.html);
+          if (diagnosed.ok || diagnosed.reason === "empty-decklists") break;
+        } else if (!retryableFetch(page)) break;
+        if (attempt === EVENT_ATTEMPTS - 1) break;
+        await pause(EVENT_BACKOFF_MS * (attempt + 1));
       }
-      if (page.kind === "timeout") {
-        miss("timeout", "exhausted 2 fetches");
-        continue;
-      }
-      if (page.kind === "network") {
-        miss("timeout", page.detail || "exhausted 2 fetches");
+      if (page.kind === "timeout" || page.kind === "network") {
+        miss("timeout", "exhausted retries");
         continue;
       }
       if (page.kind === "http") {
@@ -304,7 +390,7 @@ export async function importMtgo(
       }
       const diagnosed = diagnoseMtgoHtml(page.html);
       if (!diagnosed.ok) {
-        miss(diagnosed.reason, "");
+        miss(diagnosed.reason, diagnosed.reason === "parse" ? "no embedded decklist after retries" : "");
         continue;
       }
       const fmt = FORMAT_PREFIX[slug.split("-")[0]];
@@ -328,18 +414,25 @@ export async function importMtgo(
     } catch (e) {
       miss("exception", (e as Error).message.slice(0, 160));
     }
-    await new Promise((r) => setTimeout(r, 60)); // be polite to mtgo.com
+    await pause(60);
   }
-  // Found events on the listing but parsed none → the event-page structure changed.
-  // (Not conclusive if the time budget cut the loop short — that's a transient.)
-  if (!bailedEarly && result.found > 0 && result.events === 0) result.structuralFailure = true;
+  // Structure change: every page we fetched was a 200 with no usable embed.
+  // Timeouts, HTTP errors, and empty decklists stay partial so the cache import can publish.
+  const embedMissing =
+    stop === null &&
+    result.events === 0 &&
+    result.misses.length > 0 &&
+    result.misses.every((miss) => miss.reason === "parse");
+  if (embedMissing) result.structuralFailure = true;
   const byReason = new Map<string, number>();
   for (const item of result.misses) byReason.set(item.reason, (byReason.get(item.reason) ?? 0) + 1);
   const reasonText = [...byReason.entries()].map(([reason, n]) => `${reason} ${n}`).join(", ");
-  log(
-    result.errors
-      ? `  MTGO: imported ${result.events} events, ${result.decks} decks; missed ${result.errors} (${reasonText}). Skipped events keep any previously stored facts.`
-      : `  MTGO: imported ${result.events} events, ${result.decks} decks (0 errors)`,
-  );
+  const parts = [
+    `imported ${result.events} events, ${result.decks} decks`,
+    `skipped ${result.skippedStored} already stored`,
+    result.errors ? `missed ${result.errors} (${reasonText})` : "missed 0",
+    `unattempted ${result.unattempted.length}`,
+  ];
+  log(`  MTGO: ${parts.join("; ")}. Previously stored lists were kept.`);
   return result;
 }
