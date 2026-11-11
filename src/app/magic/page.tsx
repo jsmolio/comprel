@@ -1,7 +1,6 @@
 import Link from "next/link";
 import { getFormatSummaries, getLastRefresh } from "@/lib/queries";
 import { ColorPips } from "@/components/ColorPips";
-import { CoverageNote } from "@/components/CoverageNote";
 import { MissingSnapshot } from "@/components/MissingSnapshot";
 import { TrendBadge } from "@/components/TrendBadge";
 import { colorNameToId } from "@/lib/archetype/colors";
@@ -28,7 +27,6 @@ export default async function Home() {
             Auto-updates every ~2 hours · data last refreshed {timeAgo(lastRefresh)}.
           </p>
         )}
-        <CoverageNote coverage={loaded.snapshot.coverage} />
         <div className="grid max-w-3xl gap-3 sm:grid-cols-2">
           <Note title="Aggregate win rate">
             A deck&apos;s overall match win&nbsp;% across all events — high volume, from MTGO and paper alike.

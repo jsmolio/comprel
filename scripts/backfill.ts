@@ -22,7 +22,8 @@ import { decidePublish } from "../src/lib/facts/publish-policy";
 import { FactStore, withPublishLock } from "../src/lib/facts/store";
 import type { SnapshotCoverage, VideosState } from "../src/lib/facts/types";
 import { VIDEO_MAX_RESULTS, refreshVideoState, selectVideoTargets, videoHorizonStart } from "../src/lib/facts/videos";
-import { importMtgo, type MtgoKnowledge } from "../src/lib/sources/mtgo";
+import { reportIngestDiagnostic } from "../src/lib/ingest-summary";
+import { importMtgo, type MtgoImportResult, type MtgoKnowledge } from "../src/lib/sources/mtgo";
 import { searchYoutube } from "../src/lib/sources/youtube-search";
 import { discoverRecentCacheFiles, SOURCE_LABELS, type DiscoveredCacheFile } from "../src/lib/sources/mtgodecklistcache";
 import { FORMATS, type Format, type RawCacheItem } from "../src/lib/types";
@@ -203,6 +204,7 @@ async function main() {
     let mtgoUnattempted = 0;
     let mtgoMisses: SnapshotCoverage["mtgoMisses"];
     let mtgoUnattemptedEvents: SnapshotCoverage["mtgoUnattemptedEvents"];
+    let scrapedResult: MtgoImportResult | null = null;
     if (!noMtgo && failed.length === 0) {
       log("→ Scraping MTGO for same-day events…");
       const known = (slug: string): MtgoKnowledge => {
@@ -233,6 +235,7 @@ async function main() {
           store.writeBoards(kept.event.id, mergeStoredLists(store.readBoards(kept.event.id), kept.boards));
         },
       });
+      scrapedResult = scraped;
       if (scraped.structuralFailure) mtgo = "unavailable";
       else if (scraped.errors > 0 || scraped.unattempted.length > 0) {
         mtgo = "partial";
@@ -251,9 +254,50 @@ async function main() {
       mtgo,
       allowIncompleteMtgo,
     });
+    const emitMagicSummary = (publish: boolean, clock: Date) => {
+      const lag = lagDays(span.newest, clock);
+      const mtgoLine =
+        failed.length > 0 && !noMtgo
+          ? "MTGO was not scraped because cache files failed."
+          : `MTGO ${mtgo}.`;
+      const lagLine =
+        lag == null
+          ? "No cache folder date was discovered."
+          : `Newest cache day ${span.newest}, ${lag} day(s) behind the publish clock.`;
+      reportIngestDiagnostic(
+        "magic",
+        {
+          game: "Magic",
+          status: `${publish ? "Publish allowed." : "Publish held."} ${decision.reason} ${mtgoLine} ${lagLine}`,
+          sections: [
+            {
+              title: "Missed events",
+              events: (scrapedResult?.misses ?? []).map((miss) => ({
+                ref: miss.url,
+                reason: miss.reason,
+                detail: miss.detail,
+              })),
+            },
+            {
+              title: "Unattempted events",
+              events: (scrapedResult?.unattempted ?? []).map((event) => ({
+                ref: event.url,
+                reason: event.reason,
+              })),
+            },
+            {
+              title: "Failed cache files",
+              events: failed.map((file) => ({ ref: file, reason: "failed" })),
+            },
+          ],
+        },
+        log,
+      );
+    };
     if (!decision.publish) {
       log(`→ Holding previous snapshot: ${decision.reason}`);
       if (failed.length) log(`  first failures: ${failed.slice(0, 8).join(", ")}`);
+      emitMagicSummary(false, new Date());
       return 1;
     }
 
@@ -336,6 +380,7 @@ async function main() {
       log(`  ! newest cache folder is ${coverage.cacheLagDays} days behind ${now.toISOString().slice(0, 10)}`);
     }
 
+    emitMagicSummary(true, now);
     log("→ Publishing snapshot…");
     const published = await publishSnapshot(store, {
       classifierVersion: version,

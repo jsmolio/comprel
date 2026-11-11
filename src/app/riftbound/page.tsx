@@ -3,7 +3,6 @@ import { EraToggle } from "@/components/EraToggle";
 import { MatchupMatrix } from "@/components/MatchupMatrix";
 import { MetaShareTable } from "@/components/MetaShareTable";
 import { MissingSnapshot } from "@/components/MissingSnapshot";
-import { RiftboundCoverageNote } from "@/components/RiftboundCoverageNote";
 import { SourceToggle } from "@/components/SourceToggle";
 import { WindowToggle } from "@/components/WindowToggle";
 import { loadPublished } from "@/lib/published/load";
@@ -58,7 +57,6 @@ export default async function RiftboundPage({
           archetype. Set eras replace Magic&apos;s format tabs. Chinese events count toward share and are left out of win
           rate and the matchup matrix. Mirror matches are excluded.
         </p>
-        <RiftboundCoverageNote coverage={snapshot.coverage} />
         <EraToggle basePath="/riftbound" windowDays={windowDays} source={source} era={era} eras={snapshot.eras} />
       </div>
 
