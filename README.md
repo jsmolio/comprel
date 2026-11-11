@@ -25,7 +25,7 @@ days. Sources: all / paper / MTGO.
 - Aggregate win rate, faded under 20 matches. It comes from pairings, not from a deck's stored record, and mirror matches are excluded.
 - Head-to-head matrix for the top 12, with a Wilson 95% confidence interval.
 - Archetype pages: signature cards, a 12-month share chart with ban markers, matchups, representative lists (hover images and prices), videos, and a sideboard-guide placeholder.
-- Same-day MTGO coverage is reported on the home page. A structural MTGO failure or any missed cache file keeps the previous Magic snapshot.
+- Same-day MTGO misses stay in the snapshot coverage JSON and the ingest job summary. The site does not show them. A structural MTGO failure or any missed cache file keeps the previous Magic snapshot.
 
 | Layer | Source |
 | --- | --- |
@@ -63,7 +63,7 @@ pairings. BoundRift's aggregate stat endpoints are not the source of truth.
 
 - No paper/MTGO split. The source toggle is the organizer feed.
 - No rules-based archetype taxonomy below the legend.
-- PlayRiftbound events publish no decklists, so they can show up as coverage lag without lists.
+- PlayRiftbound events publish no decklists. The coverage JSON counts that gap.
 - Chinese events publish lists and placements, not match results.
 - Some events have standings and still no lists (`hasDeck` is false). Those pilots still count toward share when a legend is known.
 - Sideboard guides are a placeholder, same as Magic.
@@ -92,8 +92,9 @@ pnpm backfill --game=both                    # local: each game still publishes 
 ```
 
 Magic structural failure (cache holes, MTGO unavailable) still refuses the Magic snapshot.
-Riftbound's gate is looser: partial event coverage publishes and is reported on the banner
-(BoundRift misses, events the budget did not reach, PlayRiftbound lists still missing).
+Riftbound's gate is looser: partial event coverage still publishes. Misses, unattempted
+events, PlayRiftbound events with no lists, and events with no legend stay in the snapshot
+coverage JSON and the ingest job summary. The site does not show them.
 
 ### First Riftbound snapshot
 

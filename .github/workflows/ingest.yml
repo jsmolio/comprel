@@ -13,6 +13,11 @@ name: Scheduled ingest
 # There is no exit-2 path. The cron schedule is unchanged. Do not dispatch this
 # workflow as part of opening a change.
 #
+# Each game writes a miss summary under RUNNER_TEMP. The diagnostics step copies
+# those files into the job summary and records a failed game step. The site does
+# not show ingest misses. That step stays before the commit so a double failure
+# still leaves the summary.
+#
 # Token and deploy behavior:
 # - `permissions: contents: write` lets the default GITHUB_TOKEN push to this
 #   repo. Org or repo settings that cap token permissions at read will make
@@ -79,6 +84,33 @@ jobs:
         run: |
           git checkout -- data/facts/riftbound data/published/riftbound || true
           git clean -fd -- data/facts/riftbound data/published/riftbound || true
+      - name: Record ingest diagnostics
+        run: |
+          {
+            echo "## Ingest step outcomes"
+            echo
+            echo "- Magic: ${{ steps.magic.outcome }}"
+            echo "- Riftbound: ${{ steps.riftbound.outcome }}"
+            if [ "${{ steps.magic.outcome }}" != "success" ]; then
+              echo
+              echo "Magic publish failed (continue-on-error). Partial Magic data was discarded. Misses recorded by that step follow when a summary file exists."
+            fi
+            if [ "${{ steps.riftbound.outcome }}" != "success" ]; then
+              echo
+              echo "Riftbound publish failed (continue-on-error). Partial Riftbound data was discarded. Misses recorded by that step follow when a summary file exists."
+            fi
+            echo
+            for game in magic riftbound; do
+              file="$RUNNER_TEMP/comprel-ingest-${game}.md"
+              if [ -f "$file" ]; then
+                cat "$file"
+                echo
+              else
+                echo "No ${game} miss summary file was written."
+                echo
+              fi
+            done
+          } | tee -a "$GITHUB_STEP_SUMMARY"
       - name: Commit published data
         run: |
           magic="${{ steps.magic.outcome }}"

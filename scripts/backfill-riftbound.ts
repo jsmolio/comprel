@@ -16,7 +16,8 @@ import { chooseDeckPlayers, normalizeEvent, parseStandings, playRoundIds } from 
 import { decideRiftboundPublish } from "../src/lib/riftbound/publish-policy";
 import { normalizeListed, selectIngestEvents, type ListedEvent } from "../src/lib/riftbound/select";
 import { RiftboundStore } from "../src/lib/riftbound/store";
-import { RIFTBOUND_VIDEO_FORMAT, type RiftboundCoverage, type RiftboundSnapshotBody } from "../src/lib/riftbound/types";
+import { reportIngestDiagnostic, type DiagnosticEvent } from "../src/lib/ingest-summary";
+import { RIFTBOUND_VIDEO_FORMAT, type RiftboundCoverage, type RiftboundFactEvent, type RiftboundSnapshotBody } from "../src/lib/riftbound/types";
 
 const API = "https://boundrift.com/api";
 const OPENRIFT = "https://openrift.app/api/v1";
@@ -80,6 +81,15 @@ export async function publishRiftbound(argv = process.argv.slice(2)): Promise<nu
     if (!listed.ok || listed.status !== 200 || !Array.isArray(listed.body)) {
       const why = listed.ok ? `status ${listed.status}` : listed.kind;
       log(`→ Holding previous Riftbound snapshot: event list unavailable (${why}).`);
+      reportRiftboundDiagnostics(log, {
+        publish: false,
+        reason: `BoundRift event list unavailable (${why}).`,
+        boundrift: "unavailable",
+        misses: [],
+        unattempted: [],
+        withoutLists: [],
+        noLegendIds: [],
+      });
       return 1;
     }
     const rows = listed.body.map(normalizeListed).filter((row): row is ListedEvent => row != null);
@@ -112,7 +122,7 @@ export async function publishRiftbound(argv = process.argv.slice(2)): Promise<nu
     let networkFailures = 0;
     let ingestedThisRun = 0;
     let attemptedFetches = 0;
-    const misses: { id: string; reason: string }[] = [];
+    const allMisses: { id: string; reason: string }[] = [];
     const failedIds = new Set<number>();
     const before = store.allEvents().length;
 
@@ -145,18 +155,16 @@ export async function publishRiftbound(argv = process.argv.slice(2)): Promise<nu
       if (result.shape) shapeFailures += 1;
       else networkFailures += 1;
       failedIds.add(candidate.id);
-      if (misses.length < 12) misses.push({ id: String(candidate.id), reason: result.reason });
+      allMisses.push({ id: String(candidate.id), reason: result.reason });
       log(`  ! ${candidate.id} ${result.reason}`);
     }
 
     const storedIds = new Set(store.allEvents().map((event) => event.boundriftId));
-    const unattemptedEvents = selected
+    const unattemptedAll = selected
       .filter((event) => !storedIds.has(event.id) && !failedIds.has(event.id) && !skippedNoLegend.has(event.id))
-      .slice(0, 12)
       .map((event) => ({ id: String(event.id), reason: "budget" }));
-    const unattempted = selected.filter(
-      (event) => !storedIds.has(event.id) && !failedIds.has(event.id) && !skippedNoLegend.has(event.id),
-    ).length;
+    const unattempted = unattemptedAll.length;
+    const unattemptedEvents = unattemptedAll.slice(0, 12);
 
     let events = store.allEvents();
     const anchor = anchorMs(events);
@@ -171,6 +179,11 @@ export async function publishRiftbound(argv = process.argv.slice(2)): Promise<nu
       events = kept;
     }
 
+    const windowStart = Date.now() - days * 86_400_000;
+    const inWindow = events.filter((event) => Date.parse(event.date) >= windowStart);
+    const playriftbound = inWindow.filter((event) => event.source === "playriftbound");
+    const withoutLists = playriftbound.filter((event) => event.listsAbsent);
+
     const decision = decideRiftboundPublish({
       listingAvailable: true,
       shapeFailures,
@@ -179,14 +192,22 @@ export async function publishRiftbound(argv = process.argv.slice(2)): Promise<nu
       storedEvents: before,
       networkFailures,
     });
+    const boundrift: RiftboundCoverage["boundrift"] =
+      networkFailures + shapeFailures + unattempted > 0 ? "partial" : "ok";
+    reportRiftboundDiagnostics(log, {
+      publish: decision.publish,
+      reason: decision.reason,
+      boundrift,
+      misses: allMisses,
+      unattempted: unattemptedAll,
+      withoutLists,
+      noLegendIds: [...skippedNoLegend],
+    });
     if (!decision.publish) {
       log(`→ Holding previous Riftbound snapshot: ${decision.reason}`);
       return 1;
     }
 
-    const windowStart = Date.now() - days * 86_400_000;
-    const inWindow = events.filter((event) => Date.parse(event.date) >= windowStart);
-    const playriftbound = inWindow.filter((event) => event.source === "playriftbound");
     const coverage: RiftboundCoverage = {
       complete: networkFailures === 0 && shapeFailures === 0 && unattempted === 0,
       requestedDays: days,
@@ -194,12 +215,12 @@ export async function publishRiftbound(argv = process.argv.slice(2)): Promise<nu
       ingested: selected.filter((event) => storedIds.has(event.id)).length,
       failed: networkFailures + shapeFailures,
       unattempted,
-      boundrift: networkFailures + shapeFailures + unattempted > 0 ? "partial" : "ok",
+      boundrift,
       playriftboundEvents: playriftbound.length,
-      playriftboundWithoutLists: playriftbound.filter((event) => event.listsAbsent).length,
+      playriftboundWithoutLists: withoutLists.length,
       skippedNoLegend: skippedNoLegend.size,
     };
-    if (misses.length) coverage.misses = misses;
+    if (allMisses.length) coverage.misses = allMisses.slice(0, 12);
     if (unattemptedEvents.length) coverage.unattemptedEvents = unattemptedEvents;
 
     const boards = new Map(events.map((event) => [event.id, store.readBoards(event.id) ?? {}]));
@@ -378,6 +399,57 @@ async function republish(
   const colored = body.slices["30:all:all"]?.rows.filter((row) => row.colorName).length ?? 0;
   log(written.changed ? `  Riftbound snapshot republished (${colored} colored legends in the 30-day field)` : "  Riftbound snapshot unchanged");
   return 0;
+}
+
+function boundriftEventUrl(id: string | number): string {
+  return `https://boundrift.com/events/${id}`;
+}
+
+function reportRiftboundDiagnostics(
+  log: (message: string) => void,
+  input: {
+    publish: boolean;
+    reason: string;
+    boundrift: RiftboundCoverage["boundrift"];
+    misses: { id: string; reason: string }[];
+    unattempted: { id: string; reason: string }[];
+    withoutLists: RiftboundFactEvent[];
+    noLegendIds: number[];
+  },
+): void {
+  const sections: { title: string; events: DiagnosticEvent[] }[] = [
+    {
+      title: "Missed events",
+      events: input.misses.map((miss) => ({ ref: boundriftEventUrl(miss.id), reason: miss.reason })),
+    },
+    {
+      title: "Unattempted events",
+      events: input.unattempted.map((event) => ({ ref: boundriftEventUrl(event.id), reason: event.reason })),
+    },
+    {
+      title: "PlayRiftbound events with no lists",
+      events: input.withoutLists.map((event) => {
+        const canonical = boundriftEventUrl(event.boundriftId);
+        return {
+          ref: event.uri && event.uri !== canonical ? `${canonical} ${event.uri}` : canonical,
+          reason: "no lists",
+        };
+      }),
+    },
+    {
+      title: "Events with no legend",
+      events: input.noLegendIds.map((id) => ({ ref: boundriftEventUrl(id), reason: "no legend" })),
+    },
+  ];
+  reportIngestDiagnostic(
+    "riftbound",
+    {
+      game: "Riftbound",
+      status: `${input.publish ? "Publish allowed." : "Publish held."} ${input.reason} BoundRift ${input.boundrift}.`,
+      sections,
+    },
+    log,
+  );
 }
 
 function readCachedBody(dir: string, name: string): unknown | null {
