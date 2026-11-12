@@ -1,20 +1,17 @@
 import path from "node:path";
 import type { NextConfig } from "next";
-import { assertSnapshotFile } from "./src/lib/published/guard";
+import { assertPublishedTree } from "./src/lib/published/guard";
 import { magicRedirects } from "./src/lib/routing";
 
-assertSnapshotFile(path.join(process.cwd(), "data/published/snapshot.json"));
-assertSnapshotFile(
-  path.join(process.cwd(), "data/published/riftbound/snapshot.json"),
-  "data/published/riftbound/snapshot.json",
-);
+assertPublishedTree(path.join(process.cwd(), "data/published/magic"), "data/published/magic");
+assertPublishedTree(path.join(process.cwd(), "data/published/riftbound"), "data/published/riftbound");
 
 const nextConfig: NextConfig = {
-  // Dynamic routes read the snapshots from disk at request time. Fully static
-  // pages inline them at build instead. Narrow include so the files are in the
-  // server trace when a snapshot has been published.
+  // Dynamic routes read the split snapshots from disk at request time. Fully
+  // static pages inline the files they touch at build. Include the trees so a
+  // published snapshot is in the server trace.
   outputFileTracingIncludes: {
-    "/*": ["./data/published/snapshot.json", "./data/published/riftbound/snapshot.json"],
+    "/*": ["./data/published/magic/**/*", "./data/published/riftbound/**/*"],
   },
   async redirects() {
     return magicRedirects();

@@ -3,6 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { historyCutoffMs } from "./horizon";
 import { anchorMs, eventTime } from "./compute";
+import { magicBody, magicLegacySnapshot, magicPartFiles, magicPublishedDir, readMagicSnapshot } from "../published/magic";
 import type { FactEvent, FactExtras, PlayerBoard, Snapshot, SnapshotBody } from "./types";
 import type { Format } from "../types";
 
@@ -54,7 +55,7 @@ export class FactStore {
 
   constructor(readonly root: string) {
     this.factDir = path.join(root, "data", "facts", "v1");
-    this.snapshotFile = path.join(root, "data", "published", "snapshot.json");
+    this.snapshotFile = path.join(magicPublishedDir(root), "index.json");
   }
 
   private shardOf(id: string): string {
@@ -251,84 +252,94 @@ export class FactStore {
   }
 
   readSnapshot(): Snapshot | null {
-    if (!fs.existsSync(this.snapshotFile)) return null;
-    let text: string;
-    try {
-      text = fs.readFileSync(this.snapshotFile, "utf8");
-    } catch (error) {
-      throw new Error(`Could not read ${this.snapshotFile} (${(error as Error).message}).`);
-    }
-    try {
-      return JSON.parse(text) as Snapshot;
-    } catch (error) {
-      if (error instanceof SyntaxError) return null;
-      throw error;
-    }
+    return readMagicSnapshot(magicPublishedDir(this.root));
   }
 
   /**
-   * Rename into place only after the full document is on disk.
+   * Stage the split snapshot, then swap the directory into place.
    * `beforeRename` lets tests simulate a crash. A throw leaves the previous snapshot.
+   * The legacy monolithic `snapshot.json` is removed once this publish has settled.
    */
   writeSnapshot(body: SnapshotBody, publishedAt: string, opts?: { beforeRename?: () => void }): { changed: boolean } {
+    const dir = magicPublishedDir(this.root);
     const previous = this.readSnapshot();
-    return commitSnapshotFile(this.snapshotFile, { ...body, publishedAt }, body, previous ? stripPublishedAt(previous) : null, opts);
+    const same = previous != null && stableStringify(magicBody(previous)) === stableStringify(body);
+    if (same) return { changed: removeLegacySnapshot(this.root) };
+    const written = commitSnapshotTree(dir, magicPartFiles({ ...body, publishedAt }), opts);
+    if (written.changed) removeLegacySnapshot(this.root);
+    return written;
   }
+}
+
+function removeLegacySnapshot(root: string): boolean {
+  const legacy = magicLegacySnapshot(root);
+  if (!fs.existsSync(legacy) || fs.statSync(legacy).isDirectory()) return false;
+  fs.rmSync(legacy);
+  return true;
+}
+
+interface SnapshotPart {
+  rel: string;
+  doc: { schemaVersion: number; status: string; publishedAt?: string };
 }
 
 /**
- * Schema-check a snapshot, then rename it into place. A throw before the rename
- * leaves the previous file untouched. Shared by the Magic and Riftbound publishers.
+ * Schema-check every part, then swap the directory into place.
+ * A throw before the swap leaves the previous tree untouched.
  */
-export function commitSnapshotFile(
-  file: string,
-  next: { schemaVersion: number; status: string; publishedAt: string },
-  bodyForCompare: unknown,
-  previousComparable: unknown | null,
+export function commitSnapshotTree(
+  dir: string,
+  files: SnapshotPart[],
   opts?: { beforeRename?: () => void },
 ): { changed: boolean } {
-  if (previousComparable && stableStringify(previousComparable) === stableStringify(bodyForCompare)) {
-    return { changed: false };
+  const staged: { rel: string; text: string }[] = [];
+  for (const file of files) {
+    if (file.rel.startsWith("/") || file.rel.split("/").some((part) => part === "" || part === "." || part === "..")) {
+      throw new Error(`Refusing to publish a snapshot path ${JSON.stringify(file.rel)}.`);
+    }
+    const text = `${stableStringify(file.doc)}\n`;
+    let parsed: { schemaVersion?: unknown; status?: unknown; publishedAt?: unknown };
+    try {
+      parsed = JSON.parse(text) as { schemaVersion?: unknown; status?: unknown; publishedAt?: unknown };
+    } catch (error) {
+      throw new Error(`Refusing to publish ${file.rel}: not valid JSON (${(error as Error).message}).`);
+    }
+    if (parsed.schemaVersion !== 1 || parsed.status !== "ok") {
+      throw new Error(
+        `Refusing to publish ${file.rel} (schemaVersion=${String(parsed.schemaVersion)}, status=${String(parsed.status)}).`,
+      );
+    }
+    if (file.rel === "index.json" && typeof parsed.publishedAt !== "string") {
+      throw new Error("Refusing to publish index.json without publishedAt.");
+    }
+    staged.push({ rel: file.rel, text });
   }
-  const text = `${stableStringify(next)}\n`;
-  let parsed: { schemaVersion?: unknown; status?: unknown; publishedAt?: unknown };
-  try {
-    parsed = JSON.parse(text) as { schemaVersion?: unknown; status?: unknown; publishedAt?: unknown };
-  } catch (error) {
-    throw new Error(`Refusing to publish a snapshot that is not valid JSON (${(error as Error).message}).`);
+  const staging = `${dir}.staging-${process.pid}`;
+  const prev = `${dir}.prev-${process.pid}`;
+  fs.rmSync(staging, { recursive: true, force: true });
+  for (const file of staged) {
+    const abs = path.join(staging, file.rel);
+    fs.mkdirSync(path.dirname(abs), { recursive: true });
+    fs.writeFileSync(abs, file.text);
   }
-  if (parsed.schemaVersion !== 1 || parsed.status !== "ok" || typeof parsed.publishedAt !== "string") {
-    throw new Error(
-      `Refusing to publish a snapshot that fails the schema check (schemaVersion=${String(parsed.schemaVersion)}, status=${String(parsed.status)}).`,
-    );
-  }
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  const tmp = `${file}.${process.pid}.tmp`;
-  fs.writeFileSync(tmp, text);
   try {
     opts?.beforeRename?.();
-    fs.renameSync(tmp, file);
+    if (fs.existsSync(prev)) fs.rmSync(prev, { recursive: true, force: true });
+    if (fs.existsSync(dir)) fs.renameSync(dir, prev);
+    fs.renameSync(staging, dir);
   } catch (error) {
-    if (fs.existsSync(tmp)) fs.unlinkSync(tmp);
+    if (!fs.existsSync(dir) && fs.existsSync(prev)) {
+      try {
+        fs.renameSync(prev, dir);
+      } catch {
+        /* the previous tree stays at the .prev path for the failed-step cleanup */
+      }
+    }
+    fs.rmSync(staging, { recursive: true, force: true });
     throw error;
   }
+  fs.rmSync(prev, { recursive: true, force: true });
   return { changed: true };
-}
-
-function stripPublishedAt(snapshot: Snapshot): SnapshotBody {
-  const body: SnapshotBody = {
-    schemaVersion: snapshot.schemaVersion,
-    status: snapshot.status,
-    classifierVersion: snapshot.classifierVersion,
-    eventCount: snapshot.eventCount,
-    formats: snapshot.formats,
-    cards: snapshot.cards,
-    videos: snapshot.videos,
-    banEvents: snapshot.banEvents,
-  };
-  if (snapshot.videosState) body.videosState = snapshot.videosState;
-  if (snapshot.coverage) body.coverage = snapshot.coverage;
-  return body;
 }
 
 const LOCK_STALE_MS = 2 * 60 * 60 * 1000;

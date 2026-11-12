@@ -1,7 +1,8 @@
 import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
-import { commitSnapshotFile, stableStringify } from "../facts/store";
+import { commitSnapshotTree, stableStringify } from "../facts/store";
+import { readRiftboundSnapshot, riftboundBody, riftboundPartFiles, riftboundPublishedDir } from "../published/riftbound";
 import type { RiftboundBoard, RiftboundFactEvent, RiftboundSnapshot, RiftboundSnapshotBody } from "./types";
 
 export interface RiftboundExtras {
@@ -21,7 +22,7 @@ export class RiftboundStore {
 
   constructor(readonly root: string) {
     this.factDir = path.join(root, "data", "facts", "riftbound", "v1");
-    this.snapshotFile = path.join(root, "data", "published", "riftbound", "snapshot.json");
+    this.snapshotFile = path.join(riftboundPublishedDir(root), "index.json");
   }
 
   private eventFile(id: string): string {
@@ -116,39 +117,12 @@ export class RiftboundStore {
   }
 
   readSnapshot(): RiftboundSnapshot | null {
-    if (!fs.existsSync(this.snapshotFile)) return null;
-    try {
-      return JSON.parse(fs.readFileSync(this.snapshotFile, "utf8")) as RiftboundSnapshot;
-    } catch (error) {
-      if (error instanceof SyntaxError) return null;
-      throw error;
-    }
+    return readRiftboundSnapshot(riftboundPublishedDir(this.root));
   }
 
   writeSnapshot(body: RiftboundSnapshotBody, publishedAt: string, opts?: { beforeRename?: () => void }): { changed: boolean } {
     const previous = this.readSnapshot();
-    const previousBody = previous ? stripPublished(previous) : null;
-    return commitSnapshotFile(this.snapshotFile, { ...body, publishedAt }, body, previousBody, opts);
+    if (previous && stableStringify(riftboundBody(previous)) === stableStringify(body)) return { changed: false };
+    return commitSnapshotTree(riftboundPublishedDir(this.root), riftboundPartFiles({ ...body, publishedAt }), opts);
   }
-}
-
-function stripPublished(snapshot: RiftboundSnapshot): RiftboundSnapshotBody {
-  const body: RiftboundSnapshotBody = {
-    schemaVersion: snapshot.schemaVersion,
-    status: snapshot.status,
-    game: "riftbound",
-    eventCount: snapshot.eventCount,
-    anchor: snapshot.anchor,
-    latest: snapshot.latest,
-    slices: snapshot.slices,
-    weekly: snapshot.weekly,
-    lists: snapshot.lists,
-    cards: snapshot.cards,
-    videos: snapshot.videos,
-    banEvents: snapshot.banEvents,
-    eras: snapshot.eras,
-  };
-  if (snapshot.videosState) body.videosState = snapshot.videosState;
-  if (snapshot.coverage) body.coverage = snapshot.coverage;
-  return body;
 }

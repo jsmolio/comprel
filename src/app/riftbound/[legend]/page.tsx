@@ -12,12 +12,10 @@ import { SourceToggle } from "@/components/SourceToggle";
 import { TrendBadge } from "@/components/TrendBadge";
 import { VideoSection } from "@/components/VideoSection";
 import { WindowToggle } from "@/components/WindowToggle";
-import { loadPublished } from "@/lib/published/load";
-import { ALL_ERA } from "@/lib/riftbound/eras";
-import { RIFTBOUND_SNAPSHOT_LABEL, RIFTBOUND_SNAPSHOT_PATH } from "@/lib/riftbound/paths";
+import { loadRiftboundIndex, loadRiftboundLegendView } from "@/lib/published/riftbound";
+import { slugify } from "@/lib/slug";
 import {
   cellOf,
-  findLegend,
   legendLists,
   legendTimeline,
   normalizeEra,
@@ -29,7 +27,7 @@ import {
 import { isRuneCard, RIFTBOUND_CATEGORY_ORDER, riftboundCategory } from "@/lib/riftbound/domains";
 import { RIFTBOUND_SOURCE_LABELS, RIFTBOUND_SOURCES } from "@/lib/riftbound/sources";
 import type { RiftboundList, RiftboundSnapshot } from "@/lib/riftbound/types";
-import { slugify } from "@/lib/slug";
+import { ALL_ERA } from "@/lib/riftbound/eras";
 import { conversionRate, fmtDate, formatArchetype, pageQuery, pct, winrateColor } from "@/lib/ui";
 
 export default async function LegendPage({
@@ -39,7 +37,24 @@ export default async function LegendPage({
   params: Promise<{ legend: string }>;
   searchParams: Promise<{ window?: string; source?: string; era?: string }>;
 }) {
-  const loaded = loadPublished<RiftboundSnapshot>(RIFTBOUND_SNAPSHOT_PATH, RIFTBOUND_SNAPSHOT_LABEL);
+  const { legend: legendSlug } = await params;
+  const index = loadRiftboundIndex();
+  if (!index.ok) {
+    return (
+      <MissingSnapshot
+        reason={index.reason}
+        note="Build the first Riftbound snapshot with pnpm backfill --game=riftbound --days=90."
+      />
+    );
+  }
+  const legend = index.snapshot.legends.find((name) => slugify(name) === legendSlug) ?? null;
+  if (!legend) notFound();
+
+  const sp = await searchParams;
+  const windowDays = normalizeRiftboundWindow(sp.window);
+  const source = normalizeRiftboundSource(sp.source);
+  const era = normalizeEra(sp.era, index.snapshot.eras);
+  const loaded = loadRiftboundLegendView(windowDays, source, era, legend);
   if (!loaded.ok) {
     return (
       <MissingSnapshot
@@ -48,15 +63,7 @@ export default async function LegendPage({
       />
     );
   }
-  const { legend: legendSlug } = await params;
   const snapshot = loaded.snapshot;
-  const legend = findLegend(snapshot, legendSlug);
-  if (!legend) notFound();
-
-  const sp = await searchParams;
-  const windowDays = normalizeRiftboundWindow(sp.window);
-  const source = normalizeRiftboundSource(sp.source);
-  const era = normalizeEra(sp.era, snapshot.eras);
   const extra = era === ALL_ERA ? undefined : { era };
   const stat = riftboundRows(snapshot, windowDays, source, era).find((row) => row.archetype === legend) ?? null;
   const lists = legendLists(snapshot, legend, source, era);

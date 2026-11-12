@@ -11,7 +11,6 @@ import { TrendBadge } from "../src/components/TrendBadge";
 import { buildSnapshotBody } from "../src/lib/facts/compute";
 import { DAY_MS } from "../src/lib/facts/horizon";
 import type { FactEvent, PlayerBoard } from "../src/lib/facts/types";
-import { loadPublished } from "../src/lib/published/load";
 import { archetypeDetail, banMarkers, formatSummaries, matchupMatrix, metaBreakdown } from "../src/lib/queries";
 import { FactStore } from "../src/lib/facts/store";
 import { GET as ingestGet, POST as ingestPost } from "../src/app/api/ingest/route";
@@ -78,10 +77,17 @@ test("filters, five-list cap, and weekly chart read the snapshot", () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "comprel-ui-"));
   const store = new FactStore(root);
   store.writeSnapshot(body, "2026-06-02T00:00:00.000Z");
-  const loaded = loadPublished(store.snapshotFile);
-  assert.equal(loaded.ok, true);
-  if (!loaded.ok) return;
-  const snap = loaded.snapshot;
+  const snap = store.readSnapshot();
+  assert.ok(snap);
+  const index = JSON.parse(fs.readFileSync(store.snapshotFile, "utf8")) as {
+    home: { format: string; totalDecks: number; top: { archetype: string }[] }[];
+    formats: { format: string; archetypes: string[] }[];
+  };
+  assert.equal(index.home.find((row) => row.format === "Modern")?.top[0]?.archetype, "Energy");
+  assert.ok(index.formats.find((row) => row.format === "Modern")?.archetypes.includes("Domain"));
+  assert.equal(fs.readFileSync(store.snapshotFile, "utf8").includes("Lightning Bolt"), false);
+  assert.equal(fs.existsSync(path.join(root, "data", "published", "magic", "modern", "lists", "all.json")), true);
+  assert.equal(fs.existsSync(path.join(root, "data", "published", "magic", "modern", "matchups", "30-all.json")), true);
 
   const month = metaBreakdown(snap, "Modern", 30, "all");
   const week = metaBreakdown(snap, "Modern", 7, "paper");

@@ -1,27 +1,33 @@
 name: Scheduled ingest
 
-# Publishes compact event facts and a display snapshot into this repo.
-# The site reads that snapshot. This job does not connect to Postgres.
+# Publishes compact event facts and display snapshots into this repo.
+# The site reads those snapshots. This job does not connect to Postgres.
 #
 # The workflow stays disabled in the GitHub UI until someone turns it back
 # on after the first reviewed snapshot is on main. Editing this file does not
 # re-enable a workflow that was disabled manually. Do not dispatch it as part
 # of opening this change.
 #
-# Magic and Riftbound publish independently. A structural failure in one game
-# restores that game's working tree and does not block the other game's commit.
-# There is no exit-2 path. The cron schedule is unchanged. Do not dispatch this
-# workflow as part of opening a change.
+# Magic and Riftbound ingest at the same time as matrix legs. Each leg writes
+# that game's files, uploads them as an artifact, and records its miss summary
+# in that leg's step summary. One publish job then downloads whatever
+# succeeded and commits once, so the two games cannot race two pushes. A
+# failed game does not block the other game's fresh data, and it fails the
+# workflow instead of hiding behind a green run. There is no exit-2 path.
+# The cron schedule is unchanged. Do not dispatch this workflow as part of
+# opening a change.
 #
-# Each game writes a miss summary under RUNNER_TEMP. The diagnostics step copies
-# those files into the job summary and records a failed game step. The site does
-# not show ingest misses. That step stays before the commit so a double failure
-# still leaves the summary.
+# Each game writes a miss summary under RUNNER_TEMP. The diagnostics step
+# copies that file into the job summary. It is continue-on-error, and it runs
+# before the artifact upload, so a summary-write failure cannot skip the
+# upload or the later commit. The site does not show ingest misses.
 #
 # Token and deploy behavior:
-# - `permissions: contents: write` lets the default GITHUB_TOKEN push to this
-#   repo. Org or repo settings that cap token permissions at read will make
-#   the push fail. A fine-grained PAT is not configured here.
+# - The Magic leg receives GITHUB_TOKEN so the decklist-cache API can
+#   authenticate. The Riftbound leg sets it empty. Only the publish job has
+#   contents: write, which is what lets the default token push.
+# - Org or repo settings that cap token permissions at read will make the
+#   push fail. A fine-grained PAT is not configured here.
 # - GitHub documents that events caused by GITHUB_TOKEN do not create a new
 #   workflow run, except workflow_dispatch, repository_dispatch, and a few
 #   pull_request activities. A push from this job does not retrigger itself.
@@ -39,16 +45,30 @@ on:
   workflow_dispatch: {}
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: comprel-ingest
   cancel-in-progress: false
 
 jobs:
-  publish:
+  ingest:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - game: magic
+            command: pnpm backfill --incremental
+            artifact: magic-data
+            facts: data/facts/v1
+            published: data/published/magic
+          - game: riftbound
+            command: pnpm backfill --incremental --game=riftbound
+            artifact: riftbound-data
+            facts: data/facts/riftbound
+            published: data/published/riftbound
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -59,63 +79,108 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - name: Incremental Magic publish
-        id: magic
-        run: pnpm backfill --incremental
+      - name: Incremental publish
+        id: publish
+        run: ${{ matrix.command }}
         continue-on-error: true
         env:
-          GITHUB_TOKEN: ${{ github.token }}
-          # Empty when the Actions secret is not set. Backfill then keeps the
-          # saved video list and does not fail the tournament publish.
+          # Magic uses the token for the public decklist-cache API. Riftbound does not.
+          GITHUB_TOKEN: ${{ matrix.game == 'magic' && github.token || '' }}
           YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
-      - name: Discard partial Magic data
-        if: steps.magic.outcome == 'failure'
+      - name: Discard partial data
+        if: steps.publish.outcome == 'failure'
         run: |
-          git checkout -- data/facts/v1 data/published/snapshot.json || true
-          git clean -fd -- data/facts/v1 || true
-      - name: Incremental Riftbound publish
-        id: riftbound
-        run: pnpm backfill --incremental --game=riftbound
-        continue-on-error: true
-        env:
-          YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
-      - name: Discard partial Riftbound data
-        if: steps.riftbound.outcome == 'failure'
-        run: |
-          git checkout -- data/facts/riftbound data/published/riftbound || true
-          git clean -fd -- data/facts/riftbound data/published/riftbound || true
+          git checkout -- ${{ matrix.facts }} ${{ matrix.published }} || true
+          git clean -fd -- ${{ matrix.facts }} ${{ matrix.published }} || true
+          find data/published -maxdepth 1 \( -name '${{ matrix.game }}.staging-*' -o -name '${{ matrix.game }}.prev-*' \) -exec rm -rf {} +
       - name: Record ingest diagnostics
+        continue-on-error: true
         run: |
+          game="${{ matrix.game }}"
           {
             echo "## Ingest step outcomes"
             echo
-            echo "- Magic: ${{ steps.magic.outcome }}"
-            echo "- Riftbound: ${{ steps.riftbound.outcome }}"
-            if [ "${{ steps.magic.outcome }}" != "success" ]; then
+            echo "- ${game}: ${{ steps.publish.outcome }}"
+            if [ "${{ steps.publish.outcome }}" != "success" ]; then
               echo
-              echo "Magic publish failed (continue-on-error). Partial Magic data was discarded. Misses recorded by that step follow when a summary file exists."
-            fi
-            if [ "${{ steps.riftbound.outcome }}" != "success" ]; then
-              echo
-              echo "Riftbound publish failed (continue-on-error). Partial Riftbound data was discarded. Misses recorded by that step follow when a summary file exists."
+              if [ "$game" = "magic" ]; then
+                echo "Magic publish failed (continue-on-error). Partial Magic data was discarded. Misses recorded by that step follow when a summary file exists."
+              else
+                echo "Riftbound publish failed (continue-on-error). Partial Riftbound data was discarded. Misses recorded by that step follow when a summary file exists."
+              fi
             fi
             echo
-            for game in magic riftbound; do
-              file="$RUNNER_TEMP/comprel-ingest-${game}.md"
-              if [ -f "$file" ]; then
-                cat "$file"
-                echo
-              else
-                echo "No ${game} miss summary file was written."
-                echo
-              fi
-            done
+            file="$RUNNER_TEMP/comprel-ingest-${game}.md"
+            if [ -f "$file" ]; then
+              cat "$file"
+              echo
+            else
+              echo "No ${game} miss summary file was written."
+              echo
+            fi
           } | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Pack published data
+        if: steps.publish.outcome == 'success'
+        run: |
+          dest="${{ runner.temp }}/published-pack"
+          rm -rf "$dest"
+          mkdir -p "$dest"
+          cp -a "${{ matrix.facts }}" "$dest/facts"
+          cp -a "${{ matrix.published }}" "$dest/published"
+      - name: Upload published data
+        if: steps.publish.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: ${{ runner.temp }}/published-pack
+          if-no-files-found: error
+          retention-days: 1
+      - name: Fail the job when publish failed
+        if: steps.publish.outcome == 'failure'
+        run: exit 1
+
+  publish:
+    needs: ingest
+    if: ${{ !cancelled() && (needs.ingest.result == 'success' || needs.ingest.result == 'failure') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download Magic data
+        id: magic
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: magic-data
+          path: incoming/magic
+      - name: Download Riftbound data
+        id: riftbound
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: riftbound-data
+          path: incoming/riftbound
       - name: Commit published data
         run: |
-          magic="${{ steps.magic.outcome }}"
-          rift="${{ steps.riftbound.outcome }}"
-          if [ "$magic" != "success" ] && [ "$rift" != "success" ]; then
+          magic_ok=0
+          rift_ok=0
+          if [ -d incoming/magic/facts ] && [ -d incoming/magic/published ]; then
+            rm -rf data/facts/v1 data/published/magic data/published/snapshot.json
+            mkdir -p data/facts data/published
+            cp -a incoming/magic/facts data/facts/v1
+            cp -a incoming/magic/published data/published/magic
+            magic_ok=1
+          fi
+          if [ -d incoming/riftbound/facts ] && [ -d incoming/riftbound/published ]; then
+            rm -rf data/facts/riftbound data/published/riftbound
+            mkdir -p data/facts data/published
+            cp -a incoming/riftbound/facts data/facts/riftbound
+            cp -a incoming/riftbound/published data/published/riftbound
+            rift_ok=1
+          fi
+          if [ "$magic_ok" -eq 0 ] && [ "$rift_ok" -eq 0 ]; then
             echo "Both game publishes failed; nothing committed."
             exit 1
           fi

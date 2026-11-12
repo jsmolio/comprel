@@ -1,6 +1,6 @@
 # Deploying compREL
 
-The site reads `data/published/snapshot.json` from the deployment. It does not open Postgres at request time. Filter URLs (`?window=&source=`) are still server-rendered from that file. This is not a fully static HTML export of every filter combination.
+The site reads `data/published/magic/` and `data/published/riftbound/` from the deployment. It does not open Postgres at request time. Filter URLs (`?window=&source=`) are still server-rendered from those files. This is not a fully static HTML export of every filter combination.
 
 Postgres, Prisma, and `pnpm export-db` remain for a read-only copy of the existing database. Nothing in the request path writes to it.
 
@@ -10,7 +10,8 @@ Postgres, Prisma, and `pnpm export-db` remain for a read-only copy of the existi
 - `data/facts/v1/index/` — one small index per shard, not a single rewritten catalog.
 - `data/facts/v1/boards/` — card lists for the five newest decks per format, source, and archetype. Other lists are not kept. Classification never reads these files.
 - `data/facts/v1/extras.json` — videos and detected ban changes. Created by `pnpm export-db` or by ban sync. Public backfill cannot recreate videos or historical detected bans.
-- `data/published/snapshot.json` — the only file the app reads. Replaced by rename. If publishing throws first, the previous file stays.
+- `data/published/magic/` — Magic display files (index, cards, and one file per format for summary, each matchup slice, and each source's lists). Replaced by a directory swap. If publishing throws first, the previous tree stays.
+- `data/published/riftbound/` — Riftbound display files, split the same way. Magic and Riftbound do not share a file.
 
 Facts are kept back to the format anchor minus 760 days (730 for the current 365-day window plus the previous 365-day trend window, plus 30 days of slack). The old scheduled command deleted tournaments older than 365 days from now, which dropped that previous window. This publisher does not. It also does not delete database rows.
 

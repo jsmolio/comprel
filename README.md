@@ -9,11 +9,10 @@ The site reads published snapshots. It does not open Postgres at request time.
 
 | Game | Pages | Snapshot | Facts |
 | --- | --- | --- | --- |
-| Magic | `/magic`, `/magic/<format>`, `/magic/<format>/<archetype>` | `data/published/snapshot.json` | `data/facts/v1` |
-| Riftbound | `/riftbound`, `/riftbound/<legend>` | `data/published/riftbound/snapshot.json` | `data/facts/riftbound/v1` |
+| Magic | `/magic`, `/magic/<format>`, `/magic/<format>/<archetype>` | `data/published/magic/` | `data/facts/v1` |
+| Riftbound | `/riftbound`, `/riftbound/<legend>` | `data/published/riftbound/` | `data/facts/riftbound/v1` |
 
-Riftbound is not folded into the Magic snapshot. GitHub warns at 50 MB per file, and the
-Magic snapshot is already near that line.
+Magic and Riftbound are separate trees. Inside each tree, decklists and matchups are split out from the index so no committed file sits near GitHub's 50 MB warning. A page reads the index plus the one slice it renders.
 
 ## Magic
 
@@ -80,10 +79,11 @@ pairings. BoundRift's aggregate stat endpoints are not the source of truth.
 ## Scheduled ingest
 
 [`.github/workflows/ingest.yml`](.github/workflows/ingest.yml) runs every 2 hours. Magic and
-Riftbound are separate steps. A failure restores that game's working tree and does not
-block the other game's commit. Both failing commits nothing. The cron line is unchanged.
-Do not dispatch the workflow by hand as part of a change; it stays disabled in the GitHub
-UI until someone turns it back on.
+Riftbound ingest in parallel. Each game uploads its files, then one publish job
+commits once. A failure restores that game's working tree and does not block the
+other game's commit. Both failing commits nothing, and a failed game fails the
+workflow. The cron line is unchanged. Do not dispatch the workflow by hand as
+part of a change; it stays disabled in the GitHub UI until someone turns it back on.
 
 ```bash
 pnpm backfill --incremental                  # Magic only
@@ -103,10 +103,12 @@ event list plus the regionals index. The pull is finished constructed events fro
 prior 90 days: regionals, showdowns, other constructed events of 128+ players,
 PlayRiftbound, and a 16-event skirmish sample spread across sources. Decklists are capped
 at 24 per event (one list per legend, then the next best finishes). That run stored 66
-events (about 10 MB of facts). The published snapshot is about 17 MB. One event
-(`1247372`, Friday Morning Riftbound Open Play) returned no standings and is recorded as
-a miss. Five nexus nights named no legend on standings or pairings and were not stored.
-Two PlayRiftbound events are in the window with no lists. Regenerate with:
+events (about 10 MB of facts). The published files are split under
+`data/published/riftbound/` (index, summary, one matchup file per window/source/era, and
+list files). One event (`1247372`, Friday Morning Riftbound Open Play) returned no
+standings and is recorded as a miss. Five nexus nights named no legend on standings or
+pairings and were not stored. Two PlayRiftbound events are in the window with no lists.
+Regenerate with:
 
 ```bash
 pnpm backfill --game=riftbound --days=90 --max-requests=3500 --budget-ms=1200000
@@ -138,16 +140,16 @@ pnpm build        # fails if a snapshot file is present but not schemaVersion 1 
 ```
 data/facts/v1/                         Magic events, boards, extras
 data/facts/riftbound/v1/               Riftbound events, boards, extras
-data/published/snapshot.json           Magic display snapshot
-data/published/riftbound/snapshot.json Riftbound display snapshot
+data/published/magic/                  Magic index, cards, and per-format summary/matchups/lists
+data/published/riftbound/              Riftbound index, cards, summary, matchups, and lists
 data/riftbound/eras.json               era windows and ban markers
 src/lib/facts/                         shared publish guard, Wilson interval, slice math
 src/lib/riftbound/                     BoundRift ingest, era filter, snapshot builder
 src/app/                               chooser, /magic, /riftbound
 ```
 
-Snapshots are schema-checked and renamed into place. A throw before the rename leaves the
-previous file untouched.
+Snapshots are schema-checked and the directory is swapped into place. A throw before
+the swap leaves the previous tree untouched.
 
 ---
 
