@@ -1,6 +1,8 @@
+import { typeLinesFor, type DeckFileLabel } from "@/lib/deck-export";
 import { cardCategory, CATEGORY_ORDER } from "@/lib/ui";
 import type { BoardCard } from "@/lib/types";
 import { CardPreview } from "./CardPreview";
+import { DeckExport } from "./DeckExport";
 
 export interface CardInfo {
   imageUrl: string | null;
@@ -43,6 +45,7 @@ export function DeckList({
   categoryOf = cardCategory,
   categoryOrder = CATEGORY_ORDER,
   cardHref,
+  exportMeta,
 }: {
   mainboard: BoardCard[];
   sideboard: BoardCard[];
@@ -51,6 +54,8 @@ export function DeckList({
   categoryOf?: (typeLine: string | null | undefined) => string;
   categoryOrder?: readonly string[];
   cardHref?: (name: string) => string | null;
+  /** When set on a mainboard/sideboard list, show Arena, MTGO, and plain-text export. */
+  exportMeta?: DeckFileLabel;
 }) {
   if (sections) {
     return (
@@ -72,10 +77,20 @@ export function DeckList({
 
   return (
     <div>
-      <div className="mb-3 flex items-center gap-4 text-xs text-neutral-400">
-        <span>{mainCount} mainboard</span>
-        <span>{sideCount} sideboard</span>
-        {price > 0 && <span className="text-neutral-300">≈ ${price.toFixed(0)}</span>}
+      <div className="mb-3 space-y-2">
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-neutral-400">
+          <span>{mainCount} mainboard</span>
+          <span>{sideCount} sideboard</span>
+          {price > 0 && <span className="text-neutral-300">≈ ${price.toFixed(0)}</span>}
+        </div>
+        {exportMeta && (
+          <DeckExport
+            mainboard={mainboard}
+            sideboard={sideboard}
+            typeLines={typeLinesFor([...mainboard, ...sideboard], (name) => cardMap.get(name)?.typeLine)}
+            label={exportMeta}
+          />
+        )}
       </div>
       <div className="grid grid-cols-2 gap-x-6 gap-y-4 sm:grid-cols-3">
         {orderedCats.map((cat) => {
