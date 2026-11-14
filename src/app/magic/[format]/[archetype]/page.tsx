@@ -70,6 +70,7 @@ export default async function ArchetypePage({
   const deckArticles = detail.decks.map((d) => {
     const eventHref = d.tournamentUri && !isGenericMtgoIndex(d.tournamentUri) ? d.tournamentUri : null;
     const listHref = fullListHref({ anchorUri: d.anchorUri, tournamentUri: d.tournamentUri, player: d.player });
+    const playedOn = fmtDate(d.tournamentDate);
     return (
       <article key={d.id} className="rounded-xl border border-neutral-800 bg-neutral-900/40 p-4">
         <header className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
@@ -85,7 +86,7 @@ export default async function ArchetypePage({
             ) : (
               d.tournamentName
             )}{" "}
-            · {fmtDate(d.tournamentDate)} · {d.source}
+            · {playedOn} · {d.source}
             {listHref && (
               <>
                 {" · "}
@@ -96,7 +97,18 @@ export default async function ArchetypePage({
             )}
           </div>
         </header>
-        <DeckList mainboard={d.mainboard as BoardCard[]} sideboard={d.sideboard as BoardCard[]} cardMap={cards} />
+        <DeckList
+          mainboard={d.mainboard as BoardCard[]}
+          sideboard={d.sideboard as BoardCard[]}
+          cardMap={cards}
+          exportMeta={{
+            format,
+            archetype: formatArchetype(detail.archetype),
+            player: d.player,
+            event: d.tournamentName,
+            date: playedOn === "—" ? null : playedOn,
+          }}
+        />
       </article>
     );
   });
@@ -184,7 +196,8 @@ export default async function ArchetypePage({
         <div>
           <h2 className="text-lg font-semibold">Representative decklists</h2>
           <p className="text-sm text-neutral-500">
-            The most recent strong finish for this archetype, with older lists one click away. Click a card name to see its image.
+            The most recent strong finish for this archetype, with older lists one click away. Click a card name to see its
+            image. Copy a list for Arena, download it for Magic Online, or copy it as plain text.
           </p>
         </div>
         {detail.decks.length === 0 ? (
