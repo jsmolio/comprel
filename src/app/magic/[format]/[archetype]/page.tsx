@@ -16,6 +16,7 @@ import { loadMagicCards, loadMagicFormatView, loadMagicIndex } from "@/lib/publi
 import { ColorPips } from "@/components/ColorPips";
 import { TrendBadge } from "@/components/TrendBadge";
 import { ShareChart } from "@/components/ShareChart";
+import { fullListHref, isGenericMtgoIndex } from "@/lib/deck-link";
 import { conversionRate, fmtDate, formatArchetype, pageQuery, pct, winrateColor } from "@/lib/ui";
 import type { BoardCard } from "@/lib/types";
 
@@ -66,35 +67,39 @@ export default async function ArchetypePage({
 
   // Decks come back most-recent first; render each as an article so the section
   // can show the latest list and collapse the rest behind a toggle.
-  const deckArticles = detail.decks.map((d) => (
-    <article key={d.id} className="rounded-xl border border-neutral-800 bg-neutral-900/40 p-4">
-      <header className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
-        <div className="flex items-baseline gap-2">
-          <span className="font-semibold text-neutral-100">{d.player}</span>
-          <Finish rank={d.rank} result={d.result} />
-        </div>
-        <div className="text-xs text-neutral-500">
-          {d.tournamentUri ? (
-            <a href={d.tournamentUri} target="_blank" rel="noreferrer" className="hover:text-neutral-300">
-              {d.tournamentName}
-            </a>
-          ) : (
-            d.tournamentName
-          )}{" "}
-          · {fmtDate(d.tournamentDate)} · {d.source}
-          {d.anchorUri && (
-            <>
-              {" · "}
-              <a href={d.anchorUri} target="_blank" rel="noreferrer" className="text-emerald-500 hover:text-emerald-400">
-                full list ↗
+  const deckArticles = detail.decks.map((d) => {
+    const eventHref = d.tournamentUri && !isGenericMtgoIndex(d.tournamentUri) ? d.tournamentUri : null;
+    const listHref = fullListHref({ anchorUri: d.anchorUri, tournamentUri: d.tournamentUri, player: d.player });
+    return (
+      <article key={d.id} className="rounded-xl border border-neutral-800 bg-neutral-900/40 p-4">
+        <header className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
+          <div className="flex items-baseline gap-2">
+            <span className="font-semibold text-neutral-100">{d.player}</span>
+            <Finish rank={d.rank} result={d.result} />
+          </div>
+          <div className="text-xs text-neutral-500">
+            {eventHref ? (
+              <a href={eventHref} target="_blank" rel="noreferrer" className="hover:text-neutral-300">
+                {d.tournamentName}
               </a>
-            </>
-          )}
-        </div>
-      </header>
-      <DeckList mainboard={d.mainboard as BoardCard[]} sideboard={d.sideboard as BoardCard[]} cardMap={cards} />
-    </article>
-  ));
+            ) : (
+              d.tournamentName
+            )}{" "}
+            · {fmtDate(d.tournamentDate)} · {d.source}
+            {listHref && (
+              <>
+                {" · "}
+                <a href={listHref} target="_blank" rel="noreferrer" className="text-emerald-500 hover:text-emerald-400">
+                  View full list
+                </a>
+              </>
+            )}
+          </div>
+        </header>
+        <DeckList mainboard={d.mainboard as BoardCard[]} sideboard={d.sideboard as BoardCard[]} cardMap={cards} />
+      </article>
+    );
+  });
 
   return (
     <div className="space-y-8">
@@ -179,7 +184,7 @@ export default async function ArchetypePage({
         <div>
           <h2 className="text-lg font-semibold">Representative decklists</h2>
           <p className="text-sm text-neutral-500">
-            The most recent strong finish for this archetype, with older lists one click away. Hover any card for a preview.
+            The most recent strong finish for this archetype, with older lists one click away. Click a card name to see its image.
           </p>
         </div>
         {detail.decks.length === 0 ? (

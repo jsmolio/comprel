@@ -144,12 +144,14 @@ function toCacheItem(d: MtgoData, format: Format, slug: string): RawCacheItem {
   const wlBy = new Map<string, { w: number; l: number }>();
   for (const w of d.winloss ?? []) wlBy.set(String(w.loginid), { w: Number(w.wins) || 0, l: Number(w.losses) || 0 });
 
-  const url = d.url && d.url.startsWith("http") ? d.url : `${EVENT_URL}${slug}`;
+  // The payload's `url` is the challenges index, not this event. The page we
+  // fetched (`slug`) is the list. Per-player anchors match the cache's #deck_ form.
+  const eventUrl = mtgoEventUrl(slug);
 
   const Decks: RawDeck[] = decklists.map((dk) => ({
     Player: dk.player,
     Result: null,
-    AnchorUri: url,
+    AnchorUri: `${eventUrl}#deck_${dk.player}`,
     Mainboard: toBoard(dk.main_deck),
     Sideboard: toBoard(dk.sideboard_deck),
   }));
@@ -183,7 +185,7 @@ function toCacheItem(d: MtgoData, format: Format, slug: string): RawCacheItem {
     ? new Date(d.starttime.replace(" ", "T").replace(/\.\d+$/, "") + "Z").toISOString()
     : new Date().toISOString();
 
-  return { Tournament: { Date: date, Name: d.description ?? slug, Uri: url, Formats: format }, Decks, Standings, Rounds };
+  return { Tournament: { Date: date, Name: d.description ?? slug, Uri: eventUrl, Formats: format }, Decks, Standings, Rounds };
 }
 
 export interface MtgoImportResult {

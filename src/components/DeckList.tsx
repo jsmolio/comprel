@@ -1,6 +1,6 @@
-/* eslint-disable @next/next/no-img-element */
 import { cardCategory, CATEGORY_ORDER } from "@/lib/ui";
 import type { BoardCard } from "@/lib/types";
+import { CardPreview } from "./CardPreview";
 
 export interface CardInfo {
   imageUrl: string | null;
@@ -11,22 +11,9 @@ export interface CardInfo {
 export type CardMap = Map<string, CardInfo>;
 
 function CardLine({ card, info, href }: { card: BoardCard; info?: CardInfo; href?: string | null }) {
-  const name = href ? (
-    <a href={href} target="_blank" rel="noreferrer" className="text-neutral-200 group-hover:text-emerald-400">
-      {card.name}
-    </a>
-  ) : (
-    <span className="cursor-default text-neutral-200 group-hover:text-emerald-400">{card.name}</span>
-  );
   return (
-    <li className="group relative flex gap-2 text-sm leading-6">
-      <span className="w-5 shrink-0 tabular-nums text-neutral-500">{card.count}</span>
-      {name}
-      {info?.imageUrl && (
-        <span className="pointer-events-none absolute left-6 top-6 z-30 hidden group-hover:block">
-          <img src={info.imageUrl} alt={card.name} width={223} className="rounded-xl shadow-2xl ring-1 ring-black/60" />
-        </span>
-      )}
+    <li className="flex gap-2 text-sm leading-6">
+      <CardPreview name={card.name} count={card.count} imageUrl={info?.imageUrl ?? null} href={href} />
     </li>
   );
 }
