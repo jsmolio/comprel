@@ -28,6 +28,7 @@ import { isRuneCard, RIFTBOUND_CATEGORY_ORDER, riftboundCategory } from "@/lib/r
 import { RIFTBOUND_SOURCE_LABELS, RIFTBOUND_SOURCES } from "@/lib/riftbound/sources";
 import type { RiftboundList, RiftboundSnapshot } from "@/lib/riftbound/types";
 import { ALL_ERA } from "@/lib/riftbound/eras";
+import { fullListHref, isGenericMtgoIndex } from "@/lib/deck-link";
 import { conversionRate, fmtDate, formatArchetype, pageQuery, pct, winrateColor } from "@/lib/ui";
 
 export default async function LegendPage({
@@ -82,48 +83,56 @@ export default async function LegendPage({
     .map((matchup) => ({ opponent: matchup.archetypeB, slug: slugify(matchup.archetypeB), ...cellOf(matchup) }))
     .sort((a, b) => b.matches - a.matches || a.opponent.localeCompare(b.opponent));
 
-  const deckArticles = lists.map((list) => (
-    <article key={`${list.tournamentDate}:${list.playerId}`} className="rounded-xl border border-neutral-800 bg-neutral-900/40 p-4">
-      <header className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
-        <div className="flex items-baseline gap-2">
-          <span className="font-semibold text-neutral-100">{list.player}</span>
-          {list.rank != null && (
-            <span className="rounded bg-neutral-800 px-1.5 py-0.5 text-xs font-medium text-neutral-300">#{list.rank}</span>
-          )}
-        </div>
-        <div className="text-xs text-neutral-500">
-          {list.tournamentUri ? (
-            <a href={list.tournamentUri} target="_blank" rel="noreferrer" className="hover:text-neutral-300">
-              {list.tournamentName}
-            </a>
-          ) : (
-            list.tournamentName
-          )}{" "}
-          · {fmtDate(list.tournamentDate)} · {list.source}
-          {list.anchorUri && (
-            <>
-              {" · "}
-              <a href={list.anchorUri} target="_blank" rel="noreferrer" className="text-emerald-500 hover:text-emerald-400">
-                full list ↗
+  const deckArticles = lists.map((list) => {
+    const eventHref = list.tournamentUri && !isGenericMtgoIndex(list.tournamentUri) ? list.tournamentUri : null;
+    const listHref = fullListHref({
+      anchorUri: list.anchorUri,
+      tournamentUri: list.tournamentUri,
+      player: list.player,
+    });
+    return (
+      <article key={`${list.tournamentDate}:${list.playerId}`} className="rounded-xl border border-neutral-800 bg-neutral-900/40 p-4">
+        <header className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
+          <div className="flex items-baseline gap-2">
+            <span className="font-semibold text-neutral-100">{list.player}</span>
+            {list.rank != null && (
+              <span className="rounded bg-neutral-800 px-1.5 py-0.5 text-xs font-medium text-neutral-300">#{list.rank}</span>
+            )}
+          </div>
+          <div className="text-xs text-neutral-500">
+            {eventHref ? (
+              <a href={eventHref} target="_blank" rel="noreferrer" className="hover:text-neutral-300">
+                {list.tournamentName}
               </a>
-            </>
-          )}
-        </div>
-      </header>
-      <DeckList
-        mainboard={[]}
-        sideboard={[]}
-        cardMap={cards}
-        sections={sectionsOf(list)}
-        categoryOf={riftboundCategory}
-        categoryOrder={RIFTBOUND_CATEGORY_ORDER}
-        cardHref={(name) => {
-          const slug = snapshot.cards[name]?.slug;
-          return slug ? `https://openrift.app/cards/${slug}` : null;
-        }}
-      />
-    </article>
-  ));
+            ) : (
+              list.tournamentName
+            )}{" "}
+            · {fmtDate(list.tournamentDate)} · {list.source}
+            {listHref && (
+              <>
+                {" · "}
+                <a href={listHref} target="_blank" rel="noreferrer" className="text-emerald-500 hover:text-emerald-400">
+                  View full list
+                </a>
+              </>
+            )}
+          </div>
+        </header>
+        <DeckList
+          mainboard={[]}
+          sideboard={[]}
+          cardMap={cards}
+          sections={sectionsOf(list)}
+          categoryOf={riftboundCategory}
+          categoryOrder={RIFTBOUND_CATEGORY_ORDER}
+          cardHref={(name) => {
+            const slug = snapshot.cards[name]?.slug;
+            return slug ? `https://openrift.app/cards/${slug}` : null;
+          }}
+        />
+      </article>
+    );
+  });
 
   return (
     <div className="space-y-8">
@@ -196,8 +205,8 @@ export default async function LegendPage({
         <div>
           <h2 className="text-lg font-semibold">Representative decklists</h2>
           <p className="text-sm text-neutral-500">
-            Recent lists for this legend. Runes are grouped like basic lands. Hover a card for the OpenRift image. Prices
-            are approximate TCGplayer USD. PlayRiftbound events do not publish lists.
+            Recent lists for this legend. Runes are grouped like basic lands. Click a card name to see the OpenRift image.
+            Prices are approximate TCGplayer USD. PlayRiftbound events do not publish lists.
           </p>
         </div>
         {lists.length === 0 ? (

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { decidePublish } from "../src/lib/facts/publish-policy";
 import { diagnoseMtgoHtml, importMtgo, mtgoEventUrl, prioritizeMtgoSlugs, type MtgoPageFetch } from "../src/lib/sources/mtgo";
+import type { RawCacheItem } from "../src/lib/types";
 
 const day = new Date().toISOString().slice(0, 10);
 
@@ -291,4 +292,45 @@ test("every 200 page missing the decklist embed is structural", async () => {
   assert.ok(result.misses.every((miss) => miss.reason === "parse"));
   assert.equal(result.structuralFailure, true);
   assert.equal(decidePublish({ discovered: 4, failed: 0, mtgo: "unavailable", allowIncompleteMtgo: false }).publish, false);
+});
+
+test("scraped MTGO lists link to the event page, not the challenges index in the payload", async () => {
+  const today = "2026-11-14";
+  const slug = `modern-challenge-32-${today}12858103`;
+  let item: RawCacheItem | undefined;
+  const result = await importMtgo({
+    days: 4,
+    today,
+    now: () => Date.parse(`${today}T12:00:00Z`),
+    sleep: async () => {},
+    onItem: (next) => {
+      item = next;
+    },
+    fetchPage: async (url): Promise<MtgoPageFetch> => {
+      if (url.endsWith("/decklists")) return { kind: "ok", status: 200, html: indexHtml([slug]) };
+      return {
+        kind: "ok",
+        status: 200,
+        html: page({
+          description: "Modern Challenge 32",
+          starttime: `${today} 02:00:00.0`,
+          url: "https://www.mtgo.com/premier-play-prelims-and-format-challenges#challenges",
+          site_name: slug,
+          decklists: [
+            {
+              player: "gazmon48",
+              loginid: "1",
+              main_deck: [{ qty: "4", card_attributes: { card_name: "Thoughtseize" } }],
+              sideboard_deck: [],
+            },
+          ],
+        }),
+      };
+    },
+  });
+  assert.equal(result.events, 1);
+  assert.ok(item);
+  assert.equal(item.Tournament.Uri, mtgoEventUrl(slug));
+  assert.equal(item.Decks[0]?.AnchorUri, `${mtgoEventUrl(slug)}#deck_gazmon48`);
+  assert.equal(item.Decks[0]?.AnchorUri?.includes("premier-play"), false);
 });
