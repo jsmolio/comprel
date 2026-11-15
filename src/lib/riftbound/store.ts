@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
-import { commitSnapshotTree, stableStringify } from "../facts/store";
+import { commitSnapshotTree, isTournamentRel, readMatchingParts, stableStringify, syncMatchingFiles, type SnapshotPart } from "../facts/store";
 import { readRiftboundSnapshot, riftboundBody, riftboundPartFiles, riftboundPublishedDir } from "../published/riftbound";
 import type { RiftboundBoard, RiftboundFactEvent, RiftboundSnapshot, RiftboundSnapshotBody } from "./types";
 
@@ -120,9 +120,19 @@ export class RiftboundStore {
     return readRiftboundSnapshot(riftboundPublishedDir(this.root));
   }
 
-  writeSnapshot(body: RiftboundSnapshotBody, publishedAt: string, opts?: { beforeRename?: () => void }): { changed: boolean } {
+  writeSnapshot(
+    body: RiftboundSnapshotBody,
+    publishedAt: string,
+    opts?: { beforeRename?: () => void; tournaments?: SnapshotPart[] },
+  ): { changed: boolean } {
+    const dir = riftboundPublishedDir(this.root);
     const previous = this.readSnapshot();
-    if (previous && stableStringify(riftboundBody(previous)) === stableStringify(body)) return { changed: false };
-    return commitSnapshotTree(riftboundPublishedDir(this.root), riftboundPartFiles({ ...body, publishedAt }), opts);
+    const same = previous != null && stableStringify(riftboundBody(previous)) === stableStringify(body);
+    if (same) {
+      if (!opts?.tournaments) return { changed: false };
+      return { changed: syncMatchingFiles(dir, opts.tournaments, isTournamentRel) };
+    }
+    const tournaments = opts?.tournaments ?? readMatchingParts(dir, isTournamentRel);
+    return commitSnapshotTree(dir, [...riftboundPartFiles({ ...body, publishedAt }), ...tournaments], opts);
   }
 }

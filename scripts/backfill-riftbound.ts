@@ -9,6 +9,7 @@ import { refreshVideoState, videoHorizonStart } from "../src/lib/facts/videos";
 import { withPublishLock } from "../src/lib/facts/store";
 import { searchYoutube } from "../src/lib/sources/youtube-search";
 import { namesInLists, buildRiftboundSnapshot } from "../src/lib/riftbound/aggregate";
+import { riftboundTournamentParts } from "../src/lib/tournaments/riftbound";
 import { indexCatalog, legendColorFor, stubsFor } from "../src/lib/riftbound/cards";
 import { loadEraFile } from "../src/lib/riftbound/eras";
 import { fetchJsonPolite, type PoliteResult } from "../src/lib/riftbound/http";
@@ -293,7 +294,9 @@ export async function publishRiftbound(argv = process.argv.slice(2)): Promise<nu
     body.videosState = videosState;
     body.coverage = coverage;
 
-    const written = store.writeSnapshot(body, now.toISOString());
+    const written = store.writeSnapshot(body, now.toISOString(), {
+      tournaments: riftboundTournamentParts(events, (id) => store.readBoards(id)),
+    });
     log(
       written.changed
         ? `  Riftbound snapshot updated (${decision.reason}, ${body.eventCount} events, ${budget.requests} requests)`
@@ -395,7 +398,9 @@ async function republish(
   if (catalog) body = { ...body, cards: stubsFor(names, catalog.byName) };
   body.videosState = previous?.videosState ?? (process.env.YOUTUBE_API_KEY ? "current" : "no-key");
   body.coverage = previous?.coverage;
-  const written = store.writeSnapshot(body, new Date().toISOString());
+  const written = store.writeSnapshot(body, new Date().toISOString(), {
+    tournaments: riftboundTournamentParts(events, (id) => store.readBoards(id)),
+  });
   const colored = body.slices["30:all:all"]?.rows.filter((row) => row.colorName).length ?? 0;
   log(written.changed ? `  Riftbound snapshot republished (${colored} colored legends in the 30-day field)` : "  Riftbound snapshot unchanged");
   return 0;
