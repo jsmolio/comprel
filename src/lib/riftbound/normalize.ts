@@ -166,6 +166,8 @@ export interface NormalizeInput {
   decks: Record<string, unknown>;
   legendColor?: (legend: string) => string | null;
   minPlayers?: number;
+  /** Standings that name fewer legends than this are not a field. */
+  minLegends?: number;
 }
 
 export function normalizeEvent(input: NormalizeInput): NormalizeResult {
@@ -223,6 +225,9 @@ export function normalizeEvent(input: NormalizeInput): NormalizeResult {
   const playerCount = listed.startingPlayerCount ?? standings.rows.length;
   if ((input.minPlayers ?? 0) > 0 && playerCount < (input.minPlayers ?? 0)) {
     return { ok: false, shape: false, reason: "field too small" };
+  }
+  if ((input.minLegends ?? 0) > 0 && decks.length < (input.minLegends ?? 0)) {
+    return { ok: false, shape: false, reason: "too few legends" };
   }
   const event: RiftboundFactEvent = {
     schemaVersion: 1,

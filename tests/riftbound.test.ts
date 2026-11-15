@@ -10,7 +10,15 @@ import { eraContains, loadEraFile, type EraDef } from "../src/lib/riftbound/eras
 import { fetchJsonPolite } from "../src/lib/riftbound/http";
 import { chooseDeckPlayers, normalizeEvent, parseMatches, playRoundIds } from "../src/lib/riftbound/normalize";
 import { decideRiftboundPublish } from "../src/lib/riftbound/publish-policy";
-import { isConstructedSolo, sampleSkirmishes, selectIngestEvents, type ListedEvent } from "../src/lib/riftbound/select";
+import {
+  AGGREGATE_STOP,
+  discoverAggregateEvents,
+  parseAggregateBody,
+  splitDateRange,
+  type AggregatePage,
+  type AggregateQuery,
+} from "../src/lib/riftbound/discover";
+import { isConstructedSolo, mergeListed, selectIngestEvents, type ListedEvent } from "../src/lib/riftbound/select";
 import { RiftboundStore } from "../src/lib/riftbound/store";
 import type { RiftboundFactEvent } from "../src/lib/riftbound/types";
 import { magicLegacyDestination, magicLegacyLocation, magicRedirects } from "../src/lib/routing";
@@ -101,31 +109,32 @@ test("era windows are inclusive at the start and exclusive at the next set", () 
   assert.ok(file.bans.some((ban) => ban.card === "Dreaming Tree"));
 });
 
-test("constructed solo selection drops team events and samples skirmishes", () => {
+test("constructed selection keeps side events and skirmishes at the field floor", () => {
   assert.equal(isConstructedSolo(listed({ id: 1, name: "2v2 Team Challenge" })), false);
   assert.equal(isConstructedSolo(listed({ id: 2, name: "Regional Qualifier" })), true);
+  assert.equal(isConstructedSolo(listed({ id: 7, name: "Draft Night", eventFormat: "DRAFT" })), false);
   const now = new Date("2026-11-11T00:00:00.000Z");
   const events = [
     listed({ id: 1, name: "RQ", eventCategory: "regional", startDatetime: "2026-10-01T00:00:00.000Z" }),
-    listed({ id: 2, name: "2v2 Team", eventCategory: "other", startDatetime: "2026-10-02T00:00:00.000Z" }),
+    listed({ id: 2, name: "2v2 Team", eventCategory: "other", startingPlayerCount: 478, startDatetime: "2026-10-02T00:00:00.000Z" }),
     listed({ id: 3, name: "City A", eventCategory: "skirmish", source: "loltcg", startingPlayerCount: 32, startDatetime: "2026-10-03T00:00:00.000Z" }),
     listed({ id: 4, name: "City B", eventCategory: "skirmish", source: "uvs", startingPlayerCount: 40, startDatetime: "2026-10-04T00:00:00.000Z" }),
     listed({ id: 5, name: "Tiny", eventCategory: "skirmish", startingPlayerCount: 4, startDatetime: "2026-10-05T00:00:00.000Z" }),
     listed({ id: 6, name: "Old", eventCategory: "regional", startDatetime: "2026-01-01T00:00:00.000Z" }),
+    listed({ id: 8, name: "CoolStuffCon Orlando $5k", eventCategory: "other", startingPlayerCount: 123, startDatetime: "2026-10-30T00:00:00.000Z" }),
+    listed({ id: 9, name: "Live", lifecycleStatus: "EVENT_IN_PROGRESS", startingPlayerCount: 64, startDatetime: "2026-11-10T00:00:00.000Z" }),
   ];
-  const selected = selectIngestEvents(events, { now, days: 90, minPlayers: 8, skirmishSample: 1 });
-  assert.deepEqual(selected.map((event) => event.id).sort(), [1, 3]);
-  assert.ok(selected.some((event) => event.id === 1));
-  assert.equal(selected.filter((event) => event.eventCategory === "skirmish").length, 1);
-  assert.equal(selected.some((event) => event.id === 2 || event.id === 5 || event.id === 6), false);
-  const sample = sampleSkirmishes(
-    [
-      listed({ id: 10, name: "a", source: "uvs", eventCategory: "skirmish" }),
-      listed({ id: 11, name: "b", source: "loltcg", eventCategory: "skirmish" }),
-    ],
-    2,
-  );
-  assert.deepEqual(sample.map((event) => event.source).sort(), ["loltcg", "uvs"]);
+  const selected = selectIngestEvents(events, { now, days: 90, minPlayers: 8 });
+  assert.deepEqual(selected.map((event) => event.id).sort(), [1, 3, 4, 8]);
+  assert.equal(selected.some((event) => event.id === 2 || event.id === 5 || event.id === 6 || event.id === 9), false);
+  const merged = mergeListed([
+    [listed({ id: 8, name: "CoolStuff", gameplayFormatName: null, eventFormat: null, startingPlayerCount: 123 })],
+    [listed({ id: 8, name: "other name", gameplayFormatName: "Constructed", eventFormat: "CONSTRUCTED", startingPlayerCount: 50 })],
+  ]);
+  assert.equal(merged.length, 1);
+  assert.equal(merged[0].name, "CoolStuff");
+  assert.equal(merged[0].gameplayFormatName, "Constructed");
+  assert.equal(merged[0].startingPlayerCount, 123);
 });
 
 test("share counts Chinese decks and win rate ignores them, mirrors, and reports Wilson", () => {
@@ -268,6 +277,16 @@ test("normalize keeps zones, drops byes, and drops Chinese matches", () => {
   assert.equal(normalized.event.matches.length, 0);
   assert.equal(normalized.event.decks.length, 1);
   assert.equal(normalized.event.listsAbsent, false);
+  const thin = normalizeEvent({
+    detail,
+    standings,
+    matchBodies: [],
+    decks: { "9": deck },
+    minPlayers: 8,
+    minLegends: 8,
+  });
+  assert.equal(thin.ok, false);
+  if (!thin.ok) assert.equal(thin.reason, "too few legends");
   assert.deepEqual(normalized.boards["9"].runePool, [{ name: "Fury Rune", count: 12 }]);
   assert.equal(normalized.boards["9"].champion.length, 0);
   assert.equal(normalized.boards["9"].anchorUri, "https://boundrift.com/d/abc");
@@ -396,4 +415,64 @@ test("rate limit honors Retry-After and a partial event does not block publish",
   if (refused.publish) store.writeSnapshot({ ...body, eventCount: 99 }, "2026-11-12T00:00:00.000Z");
   assert.equal(refused.publish, false);
   assert.deepEqual(fs.readFileSync(store.snapshotFile), before);
+});
+
+function aggregateEvent(id: number, players: number, day: string): ListedEvent {
+  return listed({
+    id,
+    name: `Event ${id}`,
+    eventCategory: "skirmish",
+    startingPlayerCount: players,
+    startDatetime: `${day}T00:00:00.000Z`,
+  });
+}
+
+test("aggregate discovery pages a short list and raises the floor when the long tail has no legends", async () => {
+  assert.deepEqual(splitDateRange("2026-11-14", "2026-11-15"), null);
+  assert.deepEqual(splitDateRange("2026-11-01", "2026-11-15"), [
+    { start: "2026-11-01", end: "2026-11-08" },
+    { start: "2026-11-08", end: "2026-11-15" },
+  ]);
+  const parsed = parseAggregateBody({
+    totalResolved: 1,
+    totals: { players: 70 },
+    events: [{ id: 2100000095, name: "Harbin", startDatetime: "2026-11-14 00:00:00+00", playerCount: 70, source: "loltcg", eventCategory: "skirmish", lifecycleStatus: "EVENT_FINISHED" }],
+  });
+  assert.equal(parsed?.events[0].startDatetime, "2026-11-14T00:00:00.000Z");
+  assert.equal(parsed?.events[0].gameplayFormatName, "Constructed");
+
+  const calls: AggregateQuery[] = [];
+  const fetchPage = async (query: AggregateQuery): Promise<AggregatePage | null | typeof AGGREGATE_STOP> => {
+    calls.push(query);
+    if (query.category === "skirmish" && query.cn === "only") {
+      return { totalResolved: 2, playersWithLegends: 175, events: [aggregateEvent(1, 105, "2026-11-14"), aggregateEvent(2, 70, "2026-11-14")] };
+    }
+    if (query.category === "other" && query.cn === "exclude" && query.minPlayers === 8) {
+      return { totalResolved: 400, playersWithLegends: 1000, events: [aggregateEvent(9, 200, "2026-10-01")] };
+    }
+    if (query.category === "other" && query.cn === "exclude" && query.minPlayers === 32) {
+      if (query.start === "2026-10-01" && query.end === "2026-11-15") {
+        return { totalResolved: 120, playersWithLegends: 950, events: [] };
+      }
+      const id = query.start === "2026-10-01" ? 10 : 11;
+      return { totalResolved: 1, playersWithLegends: 400, events: [aggregateEvent(id, 123, query.start)] };
+    }
+    if (query.category === "nexus_nights" && query.cn === "exclude" && query.minPlayers === 8) {
+      return { totalResolved: 5000, playersWithLegends: 40, events: [] };
+    }
+    return { totalResolved: 0, playersWithLegends: 0, events: [] };
+  };
+  const found = await discoverAggregateEvents(fetchPage, {
+    start: "2026-10-01",
+    end: "2026-11-15",
+    minPlayers: 8,
+    minLegends: 8,
+  });
+  assert.equal(found.truncated, false);
+  assert.deepEqual(
+    found.events.map((event) => event.id).sort((a, b) => a - b),
+    [1, 2, 10, 11],
+  );
+  assert.equal(calls.some((query) => query.category === "nexus_nights" && query.minPlayers === 96), true);
+  assert.equal(calls.filter((query) => query.category === "nexus_nights" && query.cn === "exclude" && query.minPlayers > 8).every((query) => query.minPlayers >= 16), true);
 });
