@@ -20,6 +20,7 @@ import {
 } from "../src/lib/riftbound/discover";
 import { isConstructedSolo, mergeListed, selectIngestEvents, type ListedEvent } from "../src/lib/riftbound/select";
 import { RiftboundStore } from "../src/lib/riftbound/store";
+import { riftboundTournamentParts } from "../src/lib/tournaments/riftbound";
 import type { RiftboundFactEvent } from "../src/lib/riftbound/types";
 import { magicLegacyDestination, magicLegacyLocation, magicRedirects } from "../src/lib/routing";
 import { slugify } from "../src/lib/slug";
@@ -475,4 +476,63 @@ test("aggregate discovery pages a short list and raises the floor when the long 
   );
   assert.equal(calls.some((query) => query.category === "nexus_nights" && query.minPlayers === 96), true);
   assert.equal(calls.filter((query) => query.category === "nexus_nights" && query.cn === "exclude" && query.minPlayers > 8).every((query) => query.minPlayers >= 16), true);
+});
+
+test("a newly ingested side event is written into the tournament index", () => {
+  const now = new Date("2026-11-15T00:00:00.000Z");
+  const selected = selectIngestEvents(
+    [listed({ id: 915908, name: "CoolStuffCon Orlando $5k", eventCategory: "other", startingPlayerCount: 123, startDatetime: "2026-10-30T14:45:00.000Z" })],
+    { now, days: 90, minPlayers: 8 },
+  );
+  assert.equal(selected.length, 1);
+  const fresh = fact({
+    id: "boundrift:915908",
+    boundriftId: 915908,
+    name: "CoolStuffCon Orlando $5k",
+    source: "uvs",
+    category: "other",
+    date: "2026-10-30T14:45:00.000Z",
+    playerCount: 123,
+    decks: [{ player: "1", name: "Ada", archetype: "Riven, The Exile", colorName: null, rank: 1 }],
+  });
+  const older = fact({
+    id: "boundrift:1",
+    boundriftId: 1,
+    name: "Older Regional",
+    date: "2026-09-01T00:00:00.000Z",
+    decks: [{ player: "2", name: "Bea", archetype: "Kennen, Heart of the Tempest", colorName: null, rank: 1 }],
+  });
+  const empty = fact({
+    id: "boundrift:9",
+    boundriftId: 9,
+    source: "playriftbound",
+    name: "Empty store event",
+    date: "2026-11-01T00:00:00.000Z",
+    decks: [],
+    deckCount: 0,
+    playerCount: 40,
+  });
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "riftbound-tournaments-"));
+  const store = new RiftboundStore(root);
+  for (const event of [older, fresh, empty]) store.putEvent(event);
+  const events = store.allEvents();
+  const body = buildRiftboundSnapshot(events, new Map(), {
+    videos: [],
+    banEvents: [],
+    cards: {},
+    eras: loadEraFile().eras,
+  });
+  const written = store.writeSnapshot(body, "2026-11-15T00:00:00.000Z", {
+    tournaments: riftboundTournamentParts(events, (id) => store.readBoards(id)),
+  });
+  assert.equal(written.changed, true);
+  const index = JSON.parse(fs.readFileSync(path.join(root, "data", "published", "riftbound", "tournaments", "index.json"), "utf8")) as {
+    events: { id: string; name: string; playerCount?: number; finishes: { archetype: string }[] }[];
+  };
+  assert.deepEqual(index.events.map((event) => event.id), ["boundrift:915908", "boundrift:1"]);
+  assert.equal(index.events[0].name, "CoolStuffCon Orlando $5k");
+  assert.equal(index.events[0].playerCount, 123);
+  assert.equal(index.events[0].finishes[0].archetype, "Riven, The Exile");
+  const eventFile = fs.readdirSync(path.join(root, "data", "published", "riftbound", "tournaments")).find((name) => name !== "index.json");
+  assert.ok(eventFile);
 });
