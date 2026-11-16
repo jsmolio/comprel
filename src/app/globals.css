@@ -18,3 +18,27 @@ body {
 ::selection {
   background: rgba(16, 185, 129, 0.3);
 }
+
+details.meta-more > summary {
+  list-style: none;
+}
+
+details.meta-more > summary::-webkit-details-marker {
+  display: none;
+}
+
+details.meta-more .when-open {
+  display: none;
+}
+
+details.meta-more[open] .when-open {
+  display: inline;
+}
+
+details.meta-more[open] .when-closed {
+  display: none;
+}
+
+details.meta-more[open] > summary .meta-chevron {
+  transform: rotate(180deg);
+}

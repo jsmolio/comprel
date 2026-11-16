@@ -260,12 +260,23 @@ export class FactStore {
    * `beforeRename` lets tests simulate a crash. A throw leaves the previous snapshot.
    * The legacy monolithic `snapshot.json` is removed once this publish has settled.
    */
-  writeSnapshot(body: SnapshotBody, publishedAt: string, opts?: { beforeRename?: () => void }): { changed: boolean } {
+  writeSnapshot(
+    body: SnapshotBody,
+    publishedAt: string,
+    opts?: { beforeRename?: () => void; tournaments?: SnapshotPart[] },
+  ): { changed: boolean } {
     const dir = magicPublishedDir(this.root);
     const previous = this.readSnapshot();
     const same = previous != null && stableStringify(magicBody(previous)) === stableStringify(body);
-    if (same) return { changed: removeLegacySnapshot(this.root) };
-    const written = commitSnapshotTree(dir, magicPartFiles({ ...body, publishedAt }), opts);
+    // An unchanged metagame snapshot still picks up tournament files. Rewriting
+    // the whole tree here would churn every summary when only events were added.
+    if (same) {
+      const removed = removeLegacySnapshot(this.root);
+      const synced = opts?.tournaments ? syncMatchingFiles(dir, opts.tournaments, isTournamentRel) : false;
+      return { changed: removed || synced };
+    }
+    const tournaments = opts?.tournaments ?? readMatchingParts(dir, isTournamentRel);
+    const written = commitSnapshotTree(dir, [...magicPartFiles({ ...body, publishedAt }), ...tournaments], opts);
     if (written.changed) removeLegacySnapshot(this.root);
     return written;
   }
@@ -278,9 +289,87 @@ function removeLegacySnapshot(root: string): boolean {
   return true;
 }
 
-interface SnapshotPart {
+export interface SnapshotPart {
   rel: string;
   doc: { schemaVersion: number; status: string; publishedAt?: string };
+}
+
+export function isTournamentRel(rel: string): boolean {
+  return rel.split("/").includes("tournaments");
+}
+
+function safeRel(rel: string): void {
+  if (rel.startsWith("/") || rel.split("/").some((part) => part === "" || part === "." || part === "..")) {
+    throw new Error(`Refusing to publish a snapshot path ${JSON.stringify(rel)}.`);
+  }
+}
+
+function walkJson(dir: string): string[] {
+  if (!fs.existsSync(dir)) return [];
+  const files: string[] = [];
+  const visit = (current: string) => {
+    for (const name of fs.readdirSync(current)) {
+      const full = path.join(current, name);
+      if (fs.statSync(full).isDirectory()) visit(full);
+      else if (name.endsWith(".json")) files.push(full);
+    }
+  };
+  visit(dir);
+  return files;
+}
+
+/** Write matching files in place and delete matching files that are no longer published. */
+export function syncMatchingFiles(dir: string, parts: SnapshotPart[], match: (rel: string) => boolean): boolean {
+  let changed = false;
+  const expected = new Set<string>();
+  for (const part of parts) {
+    safeRel(part.rel);
+    if (!match(part.rel)) throw new Error(`Refusing to sync ${JSON.stringify(part.rel)} outside the expected set.`);
+    expected.add(part.rel);
+    const text = `${stableStringify(part.doc)}\n`;
+    const abs = path.join(dir, part.rel);
+    if (fs.existsSync(abs) && fs.readFileSync(abs, "utf8") === text) continue;
+    fs.mkdirSync(path.dirname(abs), { recursive: true });
+    const tmp = `${abs}.${process.pid}.tmp`;
+    fs.writeFileSync(tmp, text);
+    fs.renameSync(tmp, abs);
+    changed = true;
+  }
+  for (const abs of walkJson(dir)) {
+    const rel = path.relative(dir, abs).split(path.sep).join("/");
+    if (!match(rel) || expected.has(rel)) continue;
+    fs.rmSync(abs);
+    changed = true;
+    pruneEmptyDirs(path.dirname(abs), dir);
+  }
+  return changed;
+}
+
+function pruneEmptyDirs(dir: string, root: string) {
+  if (dir === root) return;
+  const relative = path.relative(root, dir);
+  if (relative.startsWith("..") || path.isAbsolute(relative)) return;
+  if (!fs.existsSync(dir) || fs.readdirSync(dir).length > 0) return;
+  fs.rmdirSync(dir);
+  pruneEmptyDirs(path.dirname(dir), root);
+}
+
+/** Read previously published files so a snapshot swap does not drop them. */
+export function readMatchingParts(dir: string, match: (rel: string) => boolean): SnapshotPart[] {
+  const parts: SnapshotPart[] = [];
+  for (const abs of walkJson(dir)) {
+    const rel = path.relative(dir, abs).split(path.sep).join("/");
+    if (!match(rel)) continue;
+    let parsed: SnapshotPart["doc"];
+    try {
+      parsed = JSON.parse(fs.readFileSync(abs, "utf8")) as SnapshotPart["doc"];
+    } catch {
+      continue;
+    }
+    if (!parsed || parsed.schemaVersion !== 1 || parsed.status !== "ok") continue;
+    parts.push({ rel, doc: parsed });
+  }
+  return parts;
 }
 
 /**
