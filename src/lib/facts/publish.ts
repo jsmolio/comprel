@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import { fillKeptBoards, type BoardFetch } from "./boards";
-import { selectKeptDecks, buildSnapshotBody } from "./compute";
+import { selectKeptDecks, buildSnapshotBody, type KeptDeck } from "./compute";
+import { magicTournamentKeeps, magicTournamentParts } from "../tournaments/magic";
 import { FactStore } from "./store";
 import type { CardSnap, PlayerBoard, SnapshotBody } from "./types";
 
@@ -31,10 +32,10 @@ export async function publishSnapshot(store: FactStore, opts: PublishOptions): P
   const log = opts.log ?? (() => {});
   const events = store.allEvents();
   const memory = opts.memoryBoards ?? new Map<string, Record<string, PlayerBoard>>();
-  const wanted = selectKeptDecks(events);
+  const readBoards = (id: string) => memory.get(id) ?? store.readBoards(id);
+  const wanted = mergeKept(selectKeptDecks(events), magicTournamentKeeps(events, readBoards));
   const extras = store.readExtras();
   const today = (opts.now ?? new Date()).toISOString().slice(0, 10);
-  const readBoards = (id: string) => memory.get(id) ?? store.readBoards(id);
   const filled = await fillKeptBoards({
     wanted: wanted.map((deck) => ({ event: deck.event, player: deck.player })),
     readBoards,
@@ -83,6 +84,13 @@ export async function publishSnapshot(store: FactStore, opts: PublishOptions): P
   if (opts.videosState) body.videosState = opts.videosState;
   if (opts.coverage) body.coverage = opts.coverage;
   const publishedAt = (opts.now ?? new Date()).toISOString();
-  const written = store.writeSnapshot(body, publishedAt, { beforeRename: opts.beforeRename });
+  const tournaments = magicTournamentParts(events, (id) => store.readBoards(id));
+  const written = store.writeSnapshot(body, publishedAt, { beforeRename: opts.beforeRename, tournaments });
   return { changed: written.changed, keptLists: wanted.length };
+}
+
+function mergeKept(lists: KeptDeck[], tournaments: KeptDeck[]): KeptDeck[] {
+  const merged = new Map<string, KeptDeck>();
+  for (const deck of [...lists, ...tournaments]) merged.set(`${deck.event.id}\0${deck.player}`, deck);
+  return [...merged.values()];
 }

@@ -3,9 +3,11 @@ import { EraToggle } from "@/components/EraToggle";
 import { MatchupMatrix } from "@/components/MatchupMatrix";
 import { MetaShareTable } from "@/components/MetaShareTable";
 import { MissingSnapshot } from "@/components/MissingSnapshot";
+import { RecentTournaments } from "@/components/RecentTournaments";
 import { SourceToggle } from "@/components/SourceToggle";
 import { WindowToggle } from "@/components/WindowToggle";
 import { loadRiftboundIndex, loadRiftboundMetaView } from "@/lib/published/riftbound";
+import { loadRiftboundTournamentIndex } from "@/lib/published/tournaments";
 import { ALL_ERA } from "@/lib/riftbound/eras";
 import {
   normalizeEra,
@@ -16,7 +18,11 @@ import {
   riftboundTotal,
 } from "@/lib/riftbound/read";
 import { RIFTBOUND_SOURCE_LABELS, RIFTBOUND_SOURCES } from "@/lib/riftbound/sources";
-import { fmtDate } from "@/lib/ui";
+import { slugify } from "@/lib/slug";
+import { filterRiftboundTournaments } from "@/lib/tournaments/riftbound";
+import { presentTournaments } from "@/lib/tournaments/present";
+import { TOURNAMENT_PREVIEW } from "@/lib/tournaments/select";
+import { fmtDate, pageQuery } from "@/lib/ui";
 
 export const metadata = {
   title: "Riftbound metagame — compREL",
@@ -55,6 +61,18 @@ export default async function RiftboundPage({
   const rows = riftboundRows(snapshot, windowDays, source, era);
   const matrix = riftboundMatrix(snapshot, windowDays, source, era, 12);
   const identity = (row: { colorName: string | null }) => <DomainPips colorName={row.colorName} />;
+  const tournaments = loadRiftboundTournamentIndex();
+  const query = pageQuery(windowDays, source, extra);
+  const eraDef = era === ALL_ERA ? null : (snapshot.eras.find((item) => item.id === era) ?? null);
+  const filtered = tournaments.available
+    ? filterRiftboundTournaments(tournaments.events, source, snapshot.anchor, windowDays, eraDef)
+    : [];
+  const shown = filtered.slice(0, TOURNAMENT_PREVIEW);
+  const cards = presentTournaments(shown, {
+    eventHref: (event) => `/riftbound/tournaments/${event.slug}${query}`,
+    archetypeHref: (archetype) => `/riftbound/${slugify(archetype)}${query}`,
+    formatLabel: "Constructed",
+  });
 
   return (
     <div className="space-y-8">
@@ -91,39 +109,50 @@ export default async function RiftboundPage({
           No legends in this era, window, and source yet.
         </p>
       ) : (
-        <>
-          <section>
-            <MetaShareTable
-              rows={rows}
-              formatSlug="riftbound"
-              windowDays={windowDays}
-              source={source}
-              extra={extra}
-              linkRoot="/riftbound"
-              nameColumn="Legend"
-              tailNoun="legends"
-              renderIdentity={identity}
-            />
-          </section>
-          <section className="space-y-3">
-            <div>
-              <h2 className="text-lg font-semibold">Head-to-head matchups</h2>
-              <p className="text-sm text-neutral-500">
-                Win rates between the top {matrix.archetypes.length} legends, from round-by-round pairings. Mirrors are
-                excluded. Chinese events have no match results, so they are not in this matrix.
-              </p>
-            </div>
-            <MatchupMatrix
-              matrix={matrix}
-              formatSlug="riftbound"
-              windowDays={windowDays}
-              source={source}
-              extra={extra}
-              linkRoot="/riftbound"
-              renderIdentity={identity}
-            />
-          </section>
-        </>
+        <section>
+          <MetaShareTable
+            rows={rows}
+            formatSlug="riftbound"
+            windowDays={windowDays}
+            source={source}
+            extra={extra}
+            linkRoot="/riftbound"
+            nameColumn="Legend"
+            tailNoun="legends"
+            renderIdentity={identity}
+          />
+        </section>
+      )}
+
+      {tournaments.available && (
+        <section aria-labelledby="recent-tournaments">
+          <RecentTournaments
+            events={cards}
+            moreHref={filtered.length > shown.length ? `/riftbound/tournaments${query}` : null}
+            moreLabel={filtered.length > shown.length ? `See all ${filtered.length} tournaments` : null}
+          />
+        </section>
+      )}
+
+      {rows.length > 0 && (
+        <section className="space-y-3">
+          <div>
+            <h2 className="text-lg font-semibold">Head-to-head matchups</h2>
+            <p className="text-sm text-neutral-500">
+              Win rates between the top {matrix.archetypes.length} legends, from round-by-round pairings. Mirrors are
+              excluded. Chinese events have no match results, so they are not in this matrix.
+            </p>
+          </div>
+          <MatchupMatrix
+            matrix={matrix}
+            formatSlug="riftbound"
+            windowDays={windowDays}
+            source={source}
+            extra={extra}
+            linkRoot="/riftbound"
+            renderIdentity={identity}
+          />
+        </section>
       )}
     </div>
   );
