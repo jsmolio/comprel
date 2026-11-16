@@ -16,9 +16,6 @@ export interface ListedEvent {
 const TEAM =
   /\b(2v2|two-?headed|team trios|trios|free for all|free-for-all|sealed|draft|prerelease|pre-release)\b/i;
 
-const PREMIER_CATEGORIES = new Set(["regional", "showdown"]);
-const LARGE_SIDE_CATEGORIES = new Set(["other", "open_play", "nexus_nights"]);
-
 export function fieldSize(event: ListedEvent): number {
   const size = event.startingPlayerCount ?? event.registeredUserCount ?? 0;
   return Number.isFinite(size) ? size : 0;
@@ -32,19 +29,10 @@ export function isConstructedSolo(event: ListedEvent): boolean {
   return named === "constructed" || code === "CONSTRUCTED";
 }
 
-export function isPremier(event: ListedEvent, minPlayers: number): boolean {
-  if (!isConstructedSolo(event) || fieldSize(event) < minPlayers) return false;
-  const category = event.eventCategory ?? "";
-  if (PREMIER_CATEGORIES.has(category)) return true;
-  if (event.source === "playriftbound") return true;
-  return LARGE_SIDE_CATEGORIES.has(category) && fieldSize(event) >= 128;
-}
-
 export interface SelectOptions {
   now: Date;
   days: number;
   minPlayers: number;
-  skirmishSample: number;
 }
 
 function inWindow(event: ListedEvent, now: Date, days: number): boolean {
@@ -55,51 +43,49 @@ function inWindow(event: ListedEvent, now: Date, days: number): boolean {
   return time >= start && time <= now.getTime() + 86_400_000;
 }
 
-/** Round-robin the newest skirmish per source so one region does not fill the sample. */
-export function sampleSkirmishes(events: ListedEvent[], limit: number): ListedEvent[] {
-  const sorted = [...events].sort((a, b) => (b.startDatetime ?? "").localeCompare(a.startDatetime ?? ""));
-  const bySource = new Map<string, ListedEvent[]>();
-  for (const event of sorted) {
-    const key = event.source ?? "unknown";
-    const list = bySource.get(key);
-    if (list) list.push(event);
-    else bySource.set(key, [event]);
-  }
-  const keys = [...bySource.keys()].sort();
-  const out: ListedEvent[] = [];
-  for (let depth = 0; out.length < limit; depth++) {
-    let progressed = false;
-    for (const key of keys) {
-      const event = bySource.get(key)?.[depth];
-      if (!event) continue;
-      out.push(event);
-      progressed = true;
-      if (out.length >= limit) break;
-    }
-    if (!progressed) break;
-  }
-  return out;
-}
-
 /**
- * Premier and regional constructed events in the window, plus a bounded skirmish sample.
- * Team, sealed, and draft events are left out. Newly finished events come first.
+ * Every finished constructed event in the window at the field floor.
+ * Premier, side, and skirmish events use that same floor. Team, sealed, and
+ * draft events stay out. A legend floor applied after standings are read drops
+ * events that do not name enough legends to move a share.
  */
 export function selectIngestEvents(events: readonly ListedEvent[], opts: SelectOptions): ListedEvent[] {
-  const eligible = events.filter(
-    (event) =>
-      event.lifecycleStatus === "EVENT_FINISHED" &&
-      isConstructedSolo(event) &&
-      fieldSize(event) >= opts.minPlayers &&
-      inWindow(event, opts.now, opts.days),
-  );
-  const premier = eligible.filter((event) => isPremier(event, opts.minPlayers));
-  const premierIds = new Set(premier.map((event) => event.id));
-  const skirmish = sampleSkirmishes(
-    eligible.filter((event) => event.eventCategory === "skirmish" && !premierIds.has(event.id)),
-    opts.skirmishSample,
-  );
-  return [...premier, ...skirmish].sort((a, b) => (b.startDatetime ?? "").localeCompare(a.startDatetime ?? ""));
+  return events
+    .filter(
+      (event) =>
+        event.lifecycleStatus === "EVENT_FINISHED" &&
+        isConstructedSolo(event) &&
+        fieldSize(event) >= opts.minPlayers &&
+        inWindow(event, opts.now, opts.days),
+    )
+    .sort((a, b) => (b.startDatetime ?? "").localeCompare(a.startDatetime ?? ""));
+}
+
+/** First listing wins. Later listings fill only fields the first one left empty. */
+export function mergeListed(groups: readonly (readonly ListedEvent[])[]): ListedEvent[] {
+  const byId = new Map<number, ListedEvent>();
+  for (const group of groups) {
+    for (const event of group) {
+      const prev = byId.get(event.id);
+      if (!prev) {
+        byId.set(event.id, event);
+        continue;
+      }
+      byId.set(event.id, {
+        ...prev,
+        name: prev.name || event.name,
+        startDatetime: prev.startDatetime ?? event.startDatetime,
+        lifecycleStatus: prev.lifecycleStatus ?? event.lifecycleStatus,
+        source: prev.source ?? event.source,
+        eventCategory: prev.eventCategory ?? event.eventCategory,
+        gameplayFormatName: prev.gameplayFormatName ?? event.gameplayFormatName,
+        eventFormat: prev.eventFormat ?? event.eventFormat,
+        startingPlayerCount: prev.startingPlayerCount ?? event.startingPlayerCount,
+        registeredUserCount: prev.registeredUserCount ?? event.registeredUserCount,
+      });
+    }
+  }
+  return [...byId.values()];
 }
 
 export function normalizeListed(value: unknown): ListedEvent | null {

@@ -80,7 +80,7 @@ export interface RiftboundCoverage {
   boundrift: "ok" | "partial" | "unavailable";
   playriftboundEvents: number;
   playriftboundWithoutLists: number;
-  /** Constructed events whose standings and pairings named no legend, so they were not stored. */
+  /** Constructed events whose standings and pairings named fewer legends than the floor, so they were not stored. */
   skippedNoLegend?: number;
   misses?: { id: string; reason: string }[];
   unattemptedEvents?: { id: string; reason: string }[];

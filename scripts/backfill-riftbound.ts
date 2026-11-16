@@ -15,7 +15,8 @@ import { loadEraFile } from "../src/lib/riftbound/eras";
 import { fetchJsonPolite, type PoliteResult } from "../src/lib/riftbound/http";
 import { chooseDeckPlayers, normalizeEvent, parseStandings, playRoundIds } from "../src/lib/riftbound/normalize";
 import { decideRiftboundPublish } from "../src/lib/riftbound/publish-policy";
-import { normalizeListed, selectIngestEvents, type ListedEvent } from "../src/lib/riftbound/select";
+import { aggregateUrl, AGGREGATE_STOP, discoverAggregateEvents, parseAggregateBody } from "../src/lib/riftbound/discover";
+import { fieldSize, mergeListed, normalizeListed, selectIngestEvents, type ListedEvent } from "../src/lib/riftbound/select";
 import { RiftboundStore } from "../src/lib/riftbound/store";
 import { reportIngestDiagnostic, type DiagnosticEvent } from "../src/lib/ingest-summary";
 import { RIFTBOUND_VIDEO_FORMAT, type RiftboundCoverage, type RiftboundFactEvent, type RiftboundSnapshotBody } from "../src/lib/riftbound/types";
@@ -44,7 +45,6 @@ export async function publishRiftbound(argv = process.argv.slice(2)): Promise<nu
   const days = Number(flagValue(argv, "days")) || 90;
   const maxRequests = Number(flagValue(argv, "max-requests")) || (incremental ? 400 : 2000);
   const budgetMs = Number(flagValue(argv, "budget-ms")) || (incremental ? 8 * 60_000 : 15 * 60_000);
-  const skirmishSample = Number(flagValue(argv, "skirmish-sample")) || 16;
   const decksPerEvent = Number(flagValue(argv, "decks-per-event")) || 24;
   const noCards = args.has("--no-cards");
   const publishOnly = args.has("--publish-only");
@@ -93,15 +93,15 @@ export async function publishRiftbound(argv = process.argv.slice(2)): Promise<nu
       });
       return 1;
     }
-    const rows = listed.body.map(normalizeListed).filter((row): row is ListedEvent => row != null);
-    const regionals = await paced(`${API}/regionals`);
-    if (regionals.ok && regionals.status === 200 && typeof regionals.body === "object" && regionals.body) {
-      const extra = (regionals.body as { regionals?: unknown[] }).regionals ?? [];
-      const seen = new Set(rows.map((row) => row.id));
+    const featured = listed.body.map(normalizeListed).filter((row): row is ListedEvent => row != null);
+    const regionals: ListedEvent[] = [];
+    const regionalBody = await paced(`${API}/regionals`);
+    if (regionalBody.ok && regionalBody.status === 200 && typeof regionalBody.body === "object" && regionalBody.body) {
+      const extra = (regionalBody.body as { regionals?: unknown[] }).regionals ?? [];
       for (const item of extra) {
         const regional = normalizeListed(item);
-        if (!regional || seen.has(regional.id)) continue;
-        rows.push({
+        if (!regional) continue;
+        regionals.push({
           ...regional,
           source: regional.source ?? "uvs",
           eventCategory: regional.eventCategory ?? "regional",
@@ -110,13 +110,28 @@ export async function publishRiftbound(argv = process.argv.slice(2)): Promise<nu
         });
       }
     }
+    const listedAt = new Date();
+    const aggregateStart = dayStamp(listedAt.getTime() - days * 86_400_000);
+    const aggregateEnd = dayStamp(listedAt.getTime() + 2 * 86_400_000);
+    const discovered = await discoverAggregateEvents(
+      async (query) => {
+        const result = await paced(aggregateUrl(query));
+        if (!result.ok) return result.kind === "budget" ? AGGREGATE_STOP : null;
+        if (result.status !== 200) return null;
+        return parseAggregateBody(result.body);
+      },
+      { start: aggregateStart, end: aggregateEnd, minPlayers: eraFile.minPlayers, minLegends: eraFile.minPlayers },
+    );
+    const rows = mergeListed([featured, regionals, discovered.events]);
     const selected = selectIngestEvents(rows, {
-      now: new Date(),
+      now: listedAt,
       days,
       minPlayers: eraFile.minPlayers,
-      skirmishSample,
     });
-    log(`  ${rows.length} listed, ${selected.length} selected (premier/regional plus up to ${skirmishSample} skirmishes)`);
+    log(
+      `  ${featured.length} on the featured feed, ${discovered.events.length} from the constructed aggregate (${discovered.pages} requests), ${selected.length} selected`,
+    );
+    if (discovered.truncated) log("  aggregate listing stopped early; the featured feed is still included");
 
     const skippedNoLegend = new Set<number>();
     let shapeFailures = 0;
@@ -130,17 +145,17 @@ export async function publishRiftbound(argv = process.argv.slice(2)): Promise<nu
     const catalog = noCards ? null : await loadOpenRift(root, paced, log);
     const legendColor = (legend: string) => legendColorFor(legend, catalog?.legendColors);
 
-    for (const candidate of selected) {
+    // Larger fields first so a catch-up spends the request budget on events that
+    // can move a share before it confirms empty registration lists.
+    const ordered = [...selected].sort(
+      (a, b) => fieldSize(b) - fieldSize(a) || (b.startDatetime ?? "").localeCompare(a.startDatetime ?? ""),
+    );
+    for (const candidate of ordered) {
       const id = `boundrift:${candidate.id}`;
       if (store.hasEvent(id)) continue;
       if (overBudget(budget)) break;
       attemptedFetches += 1;
-      const result = await fetchOne(candidate.id, paced, decksPerEvent, legendColor, eraFile.minPlayers);
-      if (result.ok && result.event.deckCount === 0 && result.event.source !== "playriftbound") {
-        skippedNoLegend.add(candidate.id);
-        attemptedFetches -= 1;
-        continue;
-      }
+      const result = await fetchOne(candidate.id, paced, decksPerEvent, legendColor, eraFile.minPlayers, eraFile.minPlayers);
       if (result.ok) {
         store.putEvent(result.event);
         if (Object.keys(result.boards).length) store.writeBoards(result.event.id, result.boards);
@@ -149,7 +164,13 @@ export async function publishRiftbound(argv = process.argv.slice(2)): Promise<nu
         continue;
       }
       if (result.reason === "budget") break;
-      if (result.reason === "not constructed" || result.reason === "field too small") {
+      if (
+        result.reason === "not constructed" ||
+        result.reason === "field too small" ||
+        result.reason === "too few legends" ||
+        result.reason === "no standings"
+      ) {
+        if (result.reason === "too few legends" || result.reason === "no standings") skippedNoLegend.add(candidate.id);
         attemptedFetches -= 1;
         continue;
       }
@@ -313,19 +334,26 @@ function flagValue(argv: string[], name: string): string | undefined {
 
 type Paced = (url: string, etag?: string | null) => Promise<PoliteResult | { ok: false; kind: "budget"; status: null }>;
 
+function dayStamp(ms: number): string {
+  return new Date(ms).toISOString().slice(0, 10);
+}
+
 async function fetchOne(
   id: number,
   paced: Paced,
   decksPerEvent: number,
   legendColor: (legend: string) => string | null,
   minPlayers: number,
+  minLegends: number,
 ) {
   const detail = await paced(`${API}/events/${id}`);
   if (!detail.ok || detail.status !== 200) {
+    if (!detail.ok && detail.kind === "not-found") return { ok: false as const, shape: false, reason: "no standings" };
     return { ok: false as const, shape: !detail.ok && detail.kind === "bad-shape", reason: detail.ok ? "not modified" : detail.kind };
   }
   const standings = await paced(`${API}/events/${id}/standings`);
   if (!standings.ok || standings.status !== 200) {
+    if (!standings.ok && standings.kind === "not-found") return { ok: false as const, shape: false, reason: "no standings" };
     return {
       ok: false as const,
       shape: !standings.ok && standings.kind === "bad-shape",
@@ -334,6 +362,13 @@ async function fetchOne(
   }
   const detailRecord = detail.body as { rounds?: { id?: number; roundType?: string; status?: string }[]; source?: string };
   const source = typeof detailRecord?.source === "string" ? detailRecord.source : "";
+  const parsedStandings = parseStandings(standings.body);
+  if (!parsedStandings.ok) return { ok: false as const, shape: true, reason: "standings shape" };
+  // Events whose standings name nobody also publish pairings without legend
+  // names. Stop before rounds and decklists; those requests would not add a deck.
+  if (!parsedStandings.rows.some((row) => row.legend)) {
+    return { ok: false as const, shape: false, reason: "too few legends" };
+  }
   const matchBodies: unknown[] = [];
   if (source !== "loltcg") {
     const rounds = playRoundIds(detailRecord.rounds).map((roundId) => ({ id: roundId }));
@@ -349,9 +384,18 @@ async function fetchOne(
       matchBodies.push(matches.body);
     }
   }
-  const parsedStandings = parseStandings(standings.body);
+  const preview = normalizeEvent({
+    detail: detail.body,
+    standings: standings.body,
+    matchBodies,
+    decks: {},
+    legendColor,
+    minPlayers,
+    minLegends,
+  });
+  if (!preview.ok) return { ok: false as const, shape: preview.shape, reason: preview.reason };
   const decks: Record<string, unknown> = {};
-  if (parsedStandings.ok && source !== "playriftbound") {
+  if (source !== "playriftbound") {
     for (const player of chooseDeckPlayers(parsedStandings.rows, decksPerEvent)) {
       const deck = await paced(`${API}/events/${id}/players/${player}/deck`);
       if (deck.ok && deck.status === 200) decks[player] = deck.body;
@@ -364,6 +408,7 @@ async function fetchOne(
     decks,
     legendColor,
     minPlayers,
+    minLegends,
   });
   if (!normalized.ok) return { ok: false as const, shape: normalized.shape, reason: normalized.reason };
   return { ok: true as const, event: normalized.event, boards: normalized.boards };
