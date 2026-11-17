@@ -23,7 +23,7 @@ import { FactStore, withPublishLock } from "../src/lib/facts/store";
 import type { SnapshotCoverage, VideosState } from "../src/lib/facts/types";
 import { VIDEO_MAX_RESULTS, refreshVideoState, selectVideoTargets, videoHorizonStart } from "../src/lib/facts/videos";
 import { reportIngestDiagnostic, type DiagnosticEvent } from "../src/lib/ingest-summary";
-import { importMtgo, type MtgoImportResult, type MtgoKnowledge } from "../src/lib/sources/mtgo";
+import { assessMtgoImport, importMtgo, type MtgoImportResult, type MtgoKnowledge } from "../src/lib/sources/mtgo";
 import { importPremierEvents } from "../src/lib/sources/premier";
 import { searchYoutube } from "../src/lib/sources/youtube-search";
 import { discoverRecentCacheFiles, SOURCE_LABELS, type DiscoveredCacheFile } from "../src/lib/sources/mtgodecklistcache";
@@ -222,6 +222,7 @@ async function main() {
     let mtgoUnattempted = 0;
     let mtgoMisses: SnapshotCoverage["mtgoMisses"];
     let mtgoUnattemptedEvents: SnapshotCoverage["mtgoUnattemptedEvents"];
+    let mtgoDiagnosticMisses: DiagnosticEvent[] = [];
     let scrapedResult: MtgoImportResult | null = null;
     if (!noMtgo && failed.length === 0) {
       log("→ Scraping MTGO for same-day events…");
@@ -254,16 +255,13 @@ async function main() {
         },
       });
       scrapedResult = scraped;
-      if (scraped.structuralFailure) mtgo = "unavailable";
-      else if (scraped.errors > 0 || scraped.unattempted.length > 0) {
-        mtgo = "partial";
-        mtgoMissed = scraped.errors;
-        mtgoUnattempted = scraped.unattempted.length;
-        if (scraped.misses.length) {
-          mtgoMisses = scraped.misses.map((miss) => ({ slug: miss.slug, url: miss.url, reason: miss.reason }));
-        }
-        if (scraped.unattempted.length) mtgoUnattemptedEvents = scraped.unattempted;
-      }
+      const assessed = assessMtgoImport(scraped);
+      mtgo = assessed.mtgo;
+      mtgoMissed = assessed.mtgoMissed;
+      mtgoUnattempted = assessed.mtgoUnattempted;
+      mtgoMisses = assessed.mtgoMisses;
+      mtgoUnattemptedEvents = assessed.mtgoUnattemptedEvents;
+      mtgoDiagnosticMisses = assessed.diagnosticMisses;
     }
 
     const decision = decidePublish({
@@ -290,11 +288,7 @@ async function main() {
           sections: [
             {
               title: "Missed events",
-              events: (scrapedResult?.misses ?? []).map((miss) => ({
-                ref: miss.url,
-                reason: miss.reason,
-                detail: miss.detail,
-              })),
+              events: mtgoDiagnosticMisses,
             },
             {
               title: "Unattempted events",
