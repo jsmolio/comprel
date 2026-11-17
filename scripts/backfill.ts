@@ -22,8 +22,9 @@ import { decidePublish } from "../src/lib/facts/publish-policy";
 import { FactStore, withPublishLock } from "../src/lib/facts/store";
 import type { SnapshotCoverage, VideosState } from "../src/lib/facts/types";
 import { VIDEO_MAX_RESULTS, refreshVideoState, selectVideoTargets, videoHorizonStart } from "../src/lib/facts/videos";
-import { reportIngestDiagnostic } from "../src/lib/ingest-summary";
+import { reportIngestDiagnostic, type DiagnosticEvent } from "../src/lib/ingest-summary";
 import { importMtgo, type MtgoImportResult, type MtgoKnowledge } from "../src/lib/sources/mtgo";
+import { importPremierEvents } from "../src/lib/sources/premier";
 import { searchYoutube } from "../src/lib/sources/youtube-search";
 import { discoverRecentCacheFiles, SOURCE_LABELS, type DiscoveredCacheFile } from "../src/lib/sources/mtgodecklistcache";
 import { FORMATS, type Format, type RawCacheItem } from "../src/lib/types";
@@ -141,6 +142,16 @@ async function main() {
   const version = classifierVersion();
   const allow = new Set<Format>(FORMATS);
   const log = (message: string) => console.log(message);
+
+  if (args.has("--premier-dry-run")) {
+    const report = await importPremierEvents({ store, days, dryRun: true, log });
+    for (const event of report.events) {
+      log(`  ${event.name} [${event.format}] ${event.decks} decks, ${event.matches} matches, kept ${event.kept}`);
+      for (const row of event.top) log(`    ${row.rank ?? "-"}. ${row.player} — ${row.archetype}`);
+    }
+    if (report.misses.length) log(`  misses: ${report.misses.map((miss) => `${miss.reason} ${miss.ref}`).join("; ")}`);
+    return 0;
+  }
   const done = loadDone(store, version);
   const failed: string[] = [];
   let emptyFiles = 0;
@@ -198,6 +209,13 @@ async function main() {
     });
     saveDone(store, version, done);
     log(`  cache events changed ${written}, unchanged or untracked ${skipped}, failed ${failed.length}`);
+
+    let premierMisses: DiagnosticEvent[] = [];
+    let premierUnattempted: DiagnosticEvent[] = [];
+    log("→ Premier events from magic.gg (Melee pairings when the tournament id is public)…");
+    const premier = await importPremierEvents({ store, days, log });
+    premierMisses = premier.misses.map((miss) => ({ ref: miss.ref, reason: miss.reason, detail: miss.detail }));
+    premierUnattempted = premier.unattempted.map((miss) => ({ ref: miss.ref, reason: miss.reason, detail: miss.detail }));
 
     let mtgo: SnapshotCoverage["mtgo"] = noMtgo ? "skipped" : "ok";
     let mtgoMissed = 0;
@@ -288,6 +306,14 @@ async function main() {
             {
               title: "Failed cache files",
               events: failed.map((file) => ({ ref: file, reason: "failed" })),
+            },
+            {
+              title: "Premier misses",
+              events: premierMisses,
+            },
+            {
+              title: "Premier unattempted",
+              events: premierUnattempted,
             },
           ],
         },
@@ -440,7 +466,7 @@ async function run(): Promise<number> {
 run()
   .then((code) => {
     if (code !== 0) process.exit(code);
-    if (game === "magic") console.log("✓ Publish finished.");
+    if (game === "magic" && !process.argv.includes("--premier-dry-run")) console.log("✓ Publish finished.");
     else if (game !== "both") console.log("✓ Riftbound publish finished.");
   })
   .catch((error) => {

@@ -1,5 +1,6 @@
 import { detectFormat } from "../format";
 import { isByePlayer, parseDeckResult, parseMatchResult } from "../result";
+import { isLimitedRoundLabel } from "../sources/premier-parse";
 import type { BoardCard, Format, RawCacheItem, RawDeck, RawStanding } from "../types";
 import { classifyFetched } from "./classify-guard";
 import type { FactEvent, FactMatch, PlayerBoard } from "./types";
@@ -61,6 +62,9 @@ export function normalizeCacheItem(
 
   const matches: FactMatch[] = [];
   for (const round of item.Rounds ?? []) {
+    // Draft and sealed rounds are not constructed. Numbered Pro Tour rounds are
+    // not assumed here; premier events pass an already-filtered round list.
+    if (isLimitedRoundLabel(round.RoundName)) continue;
     for (const match of round.Matches ?? []) {
       if (isByePlayer(match.Player1) || isByePlayer(match.Player2)) continue;
       const outcome = parseMatchResult(match.Result);

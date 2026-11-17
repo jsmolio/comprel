@@ -80,8 +80,10 @@ export const DEFAULT_SOURCE: SourceFilter = "all";
 export const SOURCE_LABELS: Record<SourceFilter, string> = { all: "All", paper: "Paper", mtgo: "MTGO" };
 
 // Which upstream Tournament.source values belong to each filter. Manatraders
-// runs on MTGO; melee/topdeck/cardsrealm are tabletop.
+// runs on MTGO; melee/topdeck/cardsrealm/magic.gg are tabletop. magic.gg is the
+// same-day premier feed; once the decklist cache catches up, that event is
+// stored under its melee.gg id instead.
 export const SOURCE_GROUP_MEMBERS: Record<"paper" | "mtgo", string[]> = {
-  paper: ["melee.gg", "topdeck.gg", "cardsrealm.com"],
+  paper: ["melee.gg", "topdeck.gg", "cardsrealm.com", "magic.gg"],
   mtgo: ["mtgo.com", "manatraders.com"],
 };
