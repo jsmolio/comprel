@@ -133,6 +133,36 @@ export class FactStore {
     return JSON.parse(fs.readFileSync(abs, "utf8")) as FactEvent;
   }
 
+  /** Index rows only. Does not read event bodies. */
+  listEventRefs(): { id: string; date: string; format: Format; source: string }[] {
+    const indexDir = path.join(this.factDir, "index");
+    if (!fs.existsSync(indexDir)) return [];
+    const refs: { id: string; date: string; format: Format; source: string }[] = [];
+    for (const name of fs.readdirSync(indexDir)) {
+      if (!name.endsWith(".json")) continue;
+      const index = this.loadIndex(name.slice(0, 2));
+      for (const [id, entry] of Object.entries(index.events)) {
+        refs.push({ id, date: entry.date, format: entry.format, source: entry.source });
+      }
+    }
+    return refs;
+  }
+
+  /** Remove one event and its boards. Missing ids are a no-op. */
+  deleteEvent(id: string): void {
+    const shard = this.shardOf(id);
+    const index = this.loadIndex(shard);
+    const entry = index.events[id];
+    if (entry) {
+      const abs = path.join(this.factDir, entry.file);
+      if (fs.existsSync(abs)) fs.unlinkSync(abs);
+      delete index.events[id];
+      this.saveIndex(shard);
+    }
+    const board = this.boardPath(id);
+    if (fs.existsSync(board)) fs.unlinkSync(board);
+  }
+
   allEvents(): FactEvent[] {
     const events: FactEvent[] = [];
     const indexDir = path.join(this.factDir, "index");
