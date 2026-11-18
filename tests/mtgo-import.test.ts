@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
+import fs from "node:fs";
 import test from "node:test";
 import { decidePublish } from "../src/lib/facts/publish-policy";
-import { diagnoseMtgoHtml, importMtgo, mtgoEventUrl, prioritizeMtgoSlugs, type MtgoPageFetch } from "../src/lib/sources/mtgo";
+import { renderIngestDiagnostic } from "../src/lib/ingest-summary";
+import { assessMtgoImport, diagnoseMtgoHtml, importMtgo, mtgoEventUrl, prioritizeMtgoSlugs, type MtgoPageFetch } from "../src/lib/sources/mtgo";
 import type { RawCacheItem } from "../src/lib/types";
 
 const day = new Date().toISOString().slice(0, 10);
@@ -212,6 +214,95 @@ test("the listing is retried before the cycle is skipped, and a 404 is not", asy
   assert.equal(moved.structuralFailure, true);
 });
 
+test("an unreachable listing is partial, a fetched listing is ok, and a structural failure stays unavailable", async () => {
+  const today = "2026-11-17";
+  const slug = `modern-league-${today}10001`;
+  const unreachable = assessMtgoImport(
+    await importMtgo({
+      sleep: async () => {},
+      fetchPage: async () => ({ kind: "network", detail: "fetch failed" }),
+    }),
+  );
+  assert.equal(unreachable.mtgo, "partial");
+  assert.equal(unreachable.mtgoMissed, 1);
+  assert.equal(unreachable.mtgoUnattempted, 0);
+  assert.deepEqual(unreachable.mtgoMisses, [
+    { slug: "listing", url: "https://www.mtgo.com/decklists", reason: "listing-unreachable" },
+  ]);
+  assert.deepEqual(unreachable.diagnosticMisses, [
+    { ref: "https://www.mtgo.com/decklists", reason: "listing-unreachable", detail: "fetch failed" },
+  ]);
+  const summary = renderIngestDiagnostic({
+    game: "Magic",
+    status: `Publish allowed. cache complete. MTGO ${unreachable.mtgo}.`,
+    sections: [{ title: "Missed events", events: unreachable.diagnosticMisses }],
+  });
+  assert.match(summary, /MTGO partial\./);
+  assert.match(summary, /Count: 1 \(listing-unreachable 1\)/);
+  assert.match(summary, /https:\/\/www\.mtgo\.com\/decklists — listing-unreachable \(fetch failed\)/);
+  assert.equal(decidePublish({ discovered: 4, failed: 0, mtgo: unreachable.mtgo, allowIncompleteMtgo: false }).publish, true);
+
+  const ok = assessMtgoImport(
+    await importMtgo({
+      days: 4,
+      today,
+      now: () => Date.parse(`${today}T12:00:00Z`),
+      sleep: async () => {},
+      onItem: () => {},
+      fetchPage: async (url): Promise<MtgoPageFetch> => {
+        if (url.endsWith("/decklists")) return { kind: "ok", status: 200, html: indexHtml([slug]) };
+        return {
+          kind: "ok",
+          status: 200,
+          html: page({
+            starttime: `${today} 00:00:00`,
+            decklists: [{ player: "Ada", loginid: "1", main_deck: [{ qty: "1", card_attributes: { card_name: "Island" } }] }],
+          }),
+        };
+      },
+    }),
+  );
+  assert.equal(ok.mtgo, "ok");
+  assert.equal(ok.mtgoMissed, 0);
+  assert.equal(ok.mtgoMisses, undefined);
+  assert.deepEqual(ok.diagnosticMisses, []);
+  const okSummary = renderIngestDiagnostic({
+    game: "Magic",
+    status: `Publish allowed. cache complete. MTGO ${ok.mtgo}.`,
+    sections: [{ title: "Missed events", events: ok.diagnosticMisses }],
+  });
+  assert.match(okSummary, /MTGO ok\./);
+  assert.match(okSummary, /Count: 0/);
+  assert.doesNotMatch(okSummary, /listing-unreachable/);
+  assert.equal(decidePublish({ discovered: 4, failed: 0, mtgo: ok.mtgo, allowIncompleteMtgo: false }).publish, true);
+
+  const structural = assessMtgoImport(
+    await importMtgo({
+      sleep: async () => {},
+      fetchPage: async () => ({ kind: "http", status: 404 }),
+    }),
+  );
+  assert.equal(structural.mtgo, "unavailable");
+  assert.equal(structural.mtgoMissed, 0);
+  assert.equal(structural.mtgoMisses, undefined);
+  assert.deepEqual(structural.diagnosticMisses, []);
+  const held = renderIngestDiagnostic({
+    game: "Magic",
+    status: `Publish held. MTGO scrape failed structurally; previous snapshot kept. MTGO ${structural.mtgo}.`,
+    sections: [{ title: "Missed events", events: structural.diagnosticMisses }],
+  });
+  assert.match(held, /MTGO unavailable\./);
+  assert.doesNotMatch(held, /listing-unreachable/);
+  assert.equal(decidePublish({ discovered: 4, failed: 0, mtgo: structural.mtgo, allowIncompleteMtgo: false }).publish, false);
+
+  const backfill = fs.readFileSync("scripts/backfill.ts", "utf8");
+  assert.match(backfill, /assessMtgoImport\(scraped\)/);
+  assert.match(backfill, /events: mtgoDiagnosticMisses/);
+  const magic = fs.readFileSync("src/app/magic/page.tsx", "utf8");
+  assert.doesNotMatch(magic, /listing-unreachable/);
+  assert.doesNotMatch(magic, /mtgoMisses/);
+});
+
 test("the event request cap leaves the rest unattempted", async () => {
   const today = "2026-11-11";
   const first = `modern-league-${today}30001`;
@@ -259,9 +350,17 @@ test("timeouts and HTTP errors after skipping stored events stay partial and sti
   assert.equal(result.events, 0);
   assert.equal(result.errors, 2);
   assert.equal(result.structuralFailure, false);
-  const mtgo = result.structuralFailure ? "unavailable" : "partial";
-  assert.equal(mtgo, "partial");
-  assert.equal(decidePublish({ discovered: 4, failed: 0, mtgo, allowIncompleteMtgo: false }).publish, true);
+  const assessed = assessMtgoImport(result);
+  assert.equal(assessed.mtgo, "partial");
+  assert.deepEqual(
+    assessed.diagnosticMisses.map((miss) => miss.reason).sort(),
+    ["http", "timeout"],
+  );
+  assert.equal(
+    assessed.diagnosticMisses.some((miss) => miss.reason === "listing-unreachable"),
+    false,
+  );
+  assert.equal(decidePublish({ discovered: 4, failed: 0, mtgo: assessed.mtgo, allowIncompleteMtgo: false }).publish, true);
 });
 
 test("an index 404 still blocks publish", async () => {
@@ -270,7 +369,14 @@ test("an index 404 still blocks publish", async () => {
     fetchPage: async () => ({ kind: "http", status: 404 }),
   });
   assert.equal(result.structuralFailure, true);
-  assert.equal(decidePublish({ discovered: 4, failed: 0, mtgo: "unavailable", allowIncompleteMtgo: false }).publish, false);
+  const assessed = assessMtgoImport(result);
+  assert.equal(assessed.mtgo, "unavailable");
+  assert.equal(assessed.mtgoMisses, undefined);
+  assert.equal(
+    assessed.diagnosticMisses.some((miss) => miss.reason === "listing-unreachable"),
+    false,
+  );
+  assert.equal(decidePublish({ discovered: 4, failed: 0, mtgo: assessed.mtgo, allowIncompleteMtgo: false }).publish, false);
 });
 
 test("every 200 page missing the decklist embed is structural", async () => {
@@ -291,7 +397,13 @@ test("every 200 page missing the decklist embed is structural", async () => {
   assert.equal(result.errors, 2);
   assert.ok(result.misses.every((miss) => miss.reason === "parse"));
   assert.equal(result.structuralFailure, true);
-  assert.equal(decidePublish({ discovered: 4, failed: 0, mtgo: "unavailable", allowIncompleteMtgo: false }).publish, false);
+  const assessed = assessMtgoImport(result);
+  assert.equal(assessed.mtgo, "unavailable");
+  assert.deepEqual(
+    assessed.diagnosticMisses.map((miss) => miss.reason),
+    ["parse", "parse"],
+  );
+  assert.equal(decidePublish({ discovered: 4, failed: 0, mtgo: assessed.mtgo, allowIncompleteMtgo: false }).publish, false);
 });
 
 test("scraped MTGO lists link to the event page, not the challenges index in the payload", async () => {

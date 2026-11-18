@@ -190,6 +190,8 @@ function toCacheItem(d: MtgoData, format: Format, slug: string): RawCacheItem {
 
 export interface MtgoImportResult {
   indexOk: boolean;
+  /** Why a non-structural listing fetch failed. Absent when the index loaded or the failure is structural. */
+  indexError?: string;
   found: number; // tracked-format events discovered on the index
   events: number;
   decks: number;
@@ -201,9 +203,65 @@ export interface MtgoImportResult {
   unattempted: MtgoUnattempted[];
   requests: number;
   // Listing 404, a listing with no decklist links, or every fetched page was a
-  // 200 whose decklist embed was missing. Timeouts, HTTP errors, and empty
-  // decklists are partial misses and do not block publish.
+  // 200 whose decklist embed was missing. Timeouts, HTTP errors, empty
+  // decklists, and an unreachable listing are partial and do not block publish.
   structuralFailure: boolean;
+}
+
+export interface MtgoDiagnosticMiss {
+  ref: string;
+  reason: string;
+  detail?: string;
+}
+
+export interface MtgoSourceAssessment {
+  mtgo: "ok" | "partial" | "unavailable";
+  mtgoMissed: number;
+  mtgoUnattempted: number;
+  mtgoMisses?: { slug: string; url: string; reason: string }[];
+  mtgoUnattemptedEvents?: MtgoUnattempted[];
+  /** Rows for the private job summary. Includes one listing-level row when the index could not be fetched. */
+  diagnosticMisses: MtgoDiagnosticMiss[];
+}
+
+/**
+ * Private coverage status for one scrape.
+ * An unreachable listing is partial, with reason `listing-unreachable`.
+ * Structural failures stay unavailable. A fetched listing with no misses is ok.
+ */
+export function assessMtgoImport(scraped: MtgoImportResult): MtgoSourceAssessment {
+  const eventMisses = scraped.misses.map((miss) => ({ slug: miss.slug, url: miss.url, reason: miss.reason }));
+  const diagnosticMisses = scraped.misses.map((miss) => {
+    const row: MtgoDiagnosticMiss = { ref: miss.url, reason: miss.reason };
+    if (miss.detail) row.detail = miss.detail;
+    return row;
+  });
+  if (scraped.structuralFailure) {
+    return { mtgo: "unavailable", mtgoMissed: 0, mtgoUnattempted: 0, diagnosticMisses };
+  }
+  if (!scraped.indexOk) {
+    const reason = "listing-unreachable";
+    const row: MtgoDiagnosticMiss = { ref: INDEX_URL, reason };
+    if (scraped.indexError) row.detail = scraped.indexError;
+    return {
+      mtgo: "partial",
+      mtgoMissed: 1,
+      mtgoUnattempted: 0,
+      mtgoMisses: [{ slug: "listing", url: INDEX_URL, reason }],
+      diagnosticMisses: [row],
+    };
+  }
+  if (scraped.errors > 0 || scraped.unattempted.length > 0) {
+    return {
+      mtgo: "partial",
+      mtgoMissed: scraped.errors,
+      mtgoUnattempted: scraped.unattempted.length,
+      ...(eventMisses.length ? { mtgoMisses: eventMisses } : {}),
+      ...(scraped.unattempted.length ? { mtgoUnattemptedEvents: scraped.unattempted } : {}),
+      diagnosticMisses,
+    };
+  }
+  return { mtgo: "ok", mtgoMissed: 0, mtgoUnattempted: 0, diagnosticMisses };
 }
 
 export function mtgoSlugDay(slug: string): string | null {
@@ -318,7 +376,8 @@ export async function importMtgo(
     await pause(700 * (attempt + 1));
   }
   if (indexPage.kind !== "ok") {
-    log(`  ! MTGO listing unreachable after ${INDEX_ATTEMPTS} attempts (${describeFetch(indexPage)}) — transient, skipping this cycle`);
+    result.indexError = describeFetch(indexPage);
+    log(`  ! MTGO listing unreachable after ${INDEX_ATTEMPTS} attempts (${result.indexError}) — transient, skipping this cycle`);
     return result;
   }
   const indexHtml = indexPage.html;
