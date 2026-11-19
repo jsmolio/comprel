@@ -3,7 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { INGEST_SUMMARY_FILES, renderIngestDiagnostic, reportIngestDiagnostic } from "../src/lib/ingest-summary";
+import { INGEST_SUMMARY_FILES, renderIngestDiagnostic, reportIngestDiagnostic, shortListEvents, shortListStatus, shortListTotal } from "../src/lib/ingest-summary";
 
 test("ingest summary counts misses by reason and lists every event", () => {
   const text = renderIngestDiagnostic({
@@ -109,6 +109,25 @@ test("report writes the runner summary file and the log", () => {
     if (previous === undefined) delete process.env.RUNNER_TEMP;
     else process.env.RUNNER_TEMP = previous;
   }
+});
+
+test("short constructed lists are counted in the private summary", () => {
+  const rows = [
+    { ref: "Tournaments/MTGmelee/2026/11/13/worlds.json", dropped: 31 },
+    { ref: "Tournaments/MTGO/2026/11/13/league.json", dropped: 0 },
+  ];
+  assert.equal(shortListTotal(rows), 31);
+  assert.equal(shortListStatus(31), "Dropped 31 constructed lists under 60 cards.");
+  assert.equal(shortListStatus(1), "Dropped 1 constructed list under 60 cards.");
+  const text = renderIngestDiagnostic({
+    game: "Magic",
+    status: `Publish allowed. ${shortListStatus(31)}`,
+    sections: [{ title: "Dropped short lists", events: shortListEvents(rows) }],
+  });
+  assert.match(text, /Dropped 31 constructed lists under 60 cards/);
+  assert.match(text, /Count: 1 \(short-list 1\)/);
+  assert.match(text, /worlds\.json — short-list \(31 main decks under 60\)/);
+  assert.doesNotMatch(text, /league\.json/);
 });
 
 test("the ingest workflow copies each game summary into that job and cannot skip the commit", () => {

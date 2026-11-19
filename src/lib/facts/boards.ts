@@ -24,7 +24,7 @@ export function preserveArchetypes(existing: FactEvent | null, incoming: Normali
     }
     return deck;
   });
-  return { event: { ...incoming.event, decks }, boards: incoming.boards };
+  return { event: { ...incoming.event, decks }, boards: incoming.boards, droppedLists: incoming.droppedLists };
 }
 
 export function mergeStoredLists(

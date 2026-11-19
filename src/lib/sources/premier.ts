@@ -89,6 +89,8 @@ export interface PremierRunResult {
   misses: PremierMiss[];
   unattempted: PremierMiss[];
   requests: { magic: number; melee: number };
+  /** Constructed lists dropped because the main deck had fewer than 60 cards. */
+  droppedLists: { ref: string; dropped: number }[];
 }
 
 export type FetchInit = { method: "GET" | "POST"; body?: string; headers?: Record<string, string> };
@@ -117,6 +119,7 @@ const emptyResult = (): PremierRunResult => ({
   misses: [],
   unattempted: [],
   requests: { magic: 0, melee: 0 },
+  droppedLists: [],
 });
 
 function absolute(href: string, origin: string): string | null {
@@ -445,6 +448,9 @@ async function ingestGroup(input: IngestGroupInput): Promise<PremierEventReport 
   if (!normalized) {
     input.result.misses.push({ ref: eventUrl ?? id, reason: "parse", detail: "normalize rejected the event" });
     return null;
+  }
+  if ((normalized.droppedLists ?? 0) > 0) {
+    input.result.droppedLists.push({ ref: eventUrl ?? id, dropped: normalized.droppedLists ?? 0 });
   }
   if (canonical) {
     normalized.event.name = /decklist/i.test(canonical.name) ? normalized.event.name : canonical.name;

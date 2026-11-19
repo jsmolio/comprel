@@ -1,6 +1,6 @@
 import { detectFormat } from "../format";
 import { isByePlayer, parseDeckResult, parseMatchResult } from "../result";
-import { isLimitedRoundLabel } from "../sources/premier-parse";
+import { selectConstructedCache } from "../sources/premier-parse";
 import type { BoardCard, Format, RawCacheItem, RawDeck, RawStanding } from "../types";
 import { classifyFetched } from "./classify-guard";
 import type { FactEvent, FactMatch, PlayerBoard } from "./types";
@@ -8,6 +8,11 @@ import type { FactEvent, FactMatch, PlayerBoard } from "./types";
 export interface NormalizedEvent {
   event: FactEvent;
   boards: Record<string, PlayerBoard>;
+  /**
+   * Constructed lists dropped because the main deck had fewer than 60 cards.
+   * `normalizeCacheItem` always sets this. Hand-built events can omit it.
+   */
+  droppedLists?: number;
 }
 
 function toBoard(items: { Count: number; CardName: string }[] | null | undefined): BoardCard[] {
@@ -33,15 +38,20 @@ export function normalizeCacheItem(
   classifierVersion: string,
   sourcePath: string | null,
   formatHint?: Format,
+  draftNumbers?: ReadonlySet<number> | null,
 ): NormalizedEvent | null {
   const format = formatHint ?? detectFormat(item.Tournament?.Formats, item.Tournament?.Name, stableId);
   if (!format || !allow.has(format)) return null;
   const date = new Date(item.Tournament.Date);
   if (Number.isNaN(date.getTime())) return null;
 
+  // Safety net for every constructed format: a main deck under 60 cards is not
+  // a constructed list, and a numbered round is draft only when this event's
+  // schedule (or a format label) says so. Pass null when there is no schedule.
+  const selected = selectConstructedCache(item, draftNumbers);
   const standings = new Map((item.Standings ?? []).map((s) => [s.Player, s]));
   const boards: Record<string, PlayerBoard> = {};
-  const decks = (item.Decks ?? []).map((deck) => {
+  const decks = selected.decks.map((deck) => {
     const mainboard = toBoard(deck.Mainboard);
     const sideboard = toBoard(deck.Sideboard);
     const cls = classifyFetched(format, mainboard, sideboard, true);
@@ -61,10 +71,7 @@ export function normalizeCacheItem(
   });
 
   const matches: FactMatch[] = [];
-  for (const round of item.Rounds ?? []) {
-    // Draft and sealed rounds are not constructed. Numbered Pro Tour rounds are
-    // not assumed here; premier events pass an already-filtered round list.
-    if (isLimitedRoundLabel(round.RoundName)) continue;
+  for (const round of selected.rounds) {
     for (const match of round.Matches ?? []) {
       if (isByePlayer(match.Player1) || isByePlayer(match.Player2)) continue;
       const outcome = parseMatchResult(match.Result);
@@ -89,5 +96,6 @@ export function normalizeCacheItem(
       matches,
     },
     boards,
+    droppedLists: selected.droppedLists,
   };
 }

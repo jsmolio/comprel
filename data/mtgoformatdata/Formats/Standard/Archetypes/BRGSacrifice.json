@@ -1,0 +1,38 @@
+{
+  "Name": "Sacrifice",
+  "IncludeColorInName": true,
+  "Conditions": [
+    {
+      "Type": "InMainboard",
+      "Cards": ["Obsessive Pursuit"]
+    },
+    {
+      "Type": "InMainboard",
+      "Cards": ["Umbral Collar Zealot"]
+    },
+    {
+      "Type": "InMainboard",
+      "Cards": ["Greedy Freebooter"]
+    },
+    {
+      "Type": "InMainboard",
+      "Cards": ["Lively Dirge"]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": ["Ouroboroid"]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": ["Michelangelo, Weirdness to 11"]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": ["Nurturing Pixie"]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": ["Badgermole Cub"]
+    }
+  ]
+}

@@ -30,6 +30,27 @@ function oneLine(value: string): string {
 }
 
 /** Counts grouped by reason, highest count first, then reason name. */
+/** One private diagnostic row per event that lost a short constructed list. */
+export function shortListEvents(rows: { ref: string; dropped: number }[]): DiagnosticEvent[] {
+  return rows
+    .filter((row) => row.dropped > 0)
+    .map((row) => ({
+      ref: row.ref,
+      reason: "short-list",
+      detail: `${row.dropped} main deck${row.dropped === 1 ? "" : "s"} under 60`,
+    }));
+}
+
+export function shortListTotal(rows: { dropped: number }[]): number {
+  return rows.reduce((sum, row) => sum + (row.dropped > 0 ? row.dropped : 0), 0);
+}
+
+/** Status sentence for the ingest summary. Not shown on the public site. */
+export function shortListStatus(dropped: number): string {
+  const noun = dropped === 1 ? "list" : "lists";
+  return `Dropped ${dropped} constructed ${noun} under 60 cards.`;
+}
+
 export function countByReason(events: { reason: string }[]): string {
   const counts = new Map<string, number>();
   for (const event of events) {

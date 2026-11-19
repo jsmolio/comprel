@@ -1,0 +1,34 @@
+{
+  "Name": "Michelangelo",
+  "IncludeColorInName": true,
+  "Conditions": [
+    {
+      "Type": "InMainboard",
+      "Cards": ["Michelangelo, Weirdness to 11"]
+    },
+    {
+      "Type": "InMainboard",
+      "Cards": ["Ouroboroid"]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": ["Badgermole Cub"]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": ["Earthbender Ascension"]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": ["Sazh's Chocobo"]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": ["Nurturing Pixie"]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": ["Obsessive Pursuit"]
+    }
+  ]
+}
