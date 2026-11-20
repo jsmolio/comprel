@@ -14,6 +14,9 @@ export interface RawTournament {
   Name: string;
   Uri?: string | null;
   Formats?: string | null; // explicit format from the fbettega cache, e.g. "Modern"
+  /** Optional event structure, when a source prints one. Not present on cache files today. */
+  Schedule?: string | null;
+  Description?: string | null;
 }
 
 export interface RawDeckItem {
@@ -28,11 +31,15 @@ export interface RawDeck {
   AnchorUri?: string | null;
   Mainboard: RawDeckItem[];
   Sideboard: RawDeckItem[];
+  /** Official archetype from the list source, when it printed one. */
+  Archetype?: string | null;
 }
 
 export interface RawRound {
   RoundName: string;
   Matches: RawRoundItem[];
+  /** Round format when the source printed one, such as "Draft" or "Standard". */
+  Format?: string | null;
 }
 
 export interface RawRoundItem {

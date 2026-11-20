@@ -1,4 +1,4 @@
-import type { RawCacheItem, RawDeckItem, RawRound, RawStanding } from "../types";
+import type { RawCacheItem, RawDeck, RawDeckItem, RawRound, RawStanding, RawTournament } from "../types";
 
 /**
  * Parsers for magic.gg premier decklist pages and public Melee tournament
@@ -7,7 +7,8 @@ import type { RawCacheItem, RawDeckItem, RawRound, RawStanding } from "../types"
  * Pro Tour round-number list.
  */
 
-const LIMITED = /draft|sealed|limited|booster/i;
+// "limited" must not match "Unlimited". Word boundaries keep Vintage Unlimited constructed.
+const LIMITED = /\b(?:draft|sealed|limited|booster)\b/i;
 const PREMIER_NAME = /pro\s*tour|world\s+championship/i;
 
 const MONTHS: Record<string, number> = {
@@ -76,6 +77,45 @@ export function namesMatch(a: string, b: string): boolean {
   const lf = lt[0]!;
   const rf = rt[0]!;
   return lf.startsWith(rf) || rf.startsWith(lf);
+}
+
+/**
+ * A one-word handle such as "EduS" against "Eduardo Sajgalik":
+ * a prefix of the first name plus a prefix of the last name.
+ */
+export function handleMatches(handle: string, official: string): boolean {
+  const tokens = foldName(handle).split(" ").filter(Boolean);
+  if (tokens.length !== 1) return false;
+  const compact = tokens[0]!;
+  if (compact.length < 4) return false;
+  const parts = foldName(official).split(" ").filter(Boolean);
+  if (parts.length < 2) return false;
+  const first = parts[0]!;
+  const last = parts[parts.length - 1]!;
+  for (let i = 3; i < compact.length; i++) {
+    const head = compact.slice(0, i);
+    const tail = compact.slice(i);
+    if (first.startsWith(head) && last.startsWith(tail)) return true;
+  }
+  return false;
+}
+
+/**
+ * Map a cache name or handle onto one official roster name.
+ * Case, diacritics, word order, first-name prefixes, and unique handles count.
+ * More than one official name is a miss.
+ */
+export function matchOfficialName(name: string, roster: readonly string[]): string | null {
+  const hits: string[] = [];
+  const seen = new Set<string>();
+  for (const official of roster) {
+    const key = foldName(official);
+    if (!key || seen.has(key)) continue;
+    if (!namesMatch(name, official) && !handleMatches(name, official)) continue;
+    seen.add(key);
+    hits.push(official.trim());
+  }
+  return hits.length === 1 ? hits[0]! : null;
 }
 
 export function displayName(value: string): string {
@@ -208,6 +248,8 @@ export function discoverPremierLinks(html: string, origin = "https://magic.gg"):
 
 export interface ParsedDeck {
   player: string;
+  /** Printed archetype, such as the deck-list subtitle. Null when the page did not name one. */
+  archetype: string | null;
   format: string | null;
   eventName: string | null;
   eventDay: string | null;
@@ -243,8 +285,10 @@ export function parseMagicDecklists(html: string): ParsedDeck[] {
     if (mainboard.length === 0) continue;
     const player = displayName(attr(match[1]!, "deck-title") ?? "");
     if (!player) continue;
+    const archetype = attr(match[1]!, "subtitle")?.replace(/\s+/g, " ").trim() || null;
     decks.push({
       player,
+      archetype,
       format: attr(match[1]!, "format"),
       eventName: attr(match[1]!, "event-name"),
       eventDay: parseHumanDate(attr(match[1]!, "event-date")),
@@ -517,15 +561,86 @@ export interface PremierBundle {
   draftIdentified: boolean;
 }
 
-function copies(cards: { Count: number }[] | null | undefined): number {
+/** Card copies on one board. Non-positive counts do not add. */
+export function cardCopies(cards: { Count: number }[] | null | undefined): number {
   return (cards ?? []).reduce((sum, card) => sum + (card.Count > 0 ? card.Count : 0), 0);
+}
+
+/** Constructed main decks are 60 cards. A shorter list in these formats is a draft (or partial) list. */
+export const CONSTRUCTED_MIN_MAIN = 60;
+
+export interface RosterList {
+  player: string;
+  archetype: string | null;
+  colorName: string | null;
+  rank: number | null;
+  result: string | null;
+  anchorUri: string | null;
+  mainboard: { name: string; count: number }[];
+  sideboard: { name: string; count: number }[];
+}
+
+function boardCopies(cards: { count: number }[] | null | undefined): number {
+  return (cards ?? []).reduce((sum, card) => sum + (card.count > 0 ? card.count : 0), 0);
+}
+
+/** A magic.gg constructed list (60 main, usually 15 side) beats a cached draft list. */
+export function preferPremierList(premier: RosterList | undefined, cache: RosterList | undefined): boolean {
+  if (!premier) return false;
+  if (boardCopies(premier.mainboard) < CONSTRUCTED_MIN_MAIN) return false;
+  if (boardCopies(cache?.mainboard) < CONSTRUCTED_MIN_MAIN) return true;
+  const premierSide = boardCopies(premier.sideboard);
+  const cacheSide = boardCopies(cache?.sideboard);
+  if (premierSide !== cacheSide) return premierSide > cacheSide;
+  return boardCopies(premier.mainboard) >= boardCopies(cache?.mainboard);
+}
+
+/**
+ * Keep one list per player. Official roster names and archetypes win.
+ * A constructed magic.gg list replaces a shorter cached list for that player.
+ * Cache names that match nobody, or more than one official name, are unmatched.
+ */
+export function mergeRosterLists(
+  cache: readonly RosterList[],
+  premier: readonly RosterList[],
+): { lists: RosterList[]; unmatched: string[]; aliases: Map<string, string> } {
+  const roster = premier.map((row) => row.player);
+  const premierBy = new Map(premier.map((row) => [foldName(row.player), row]));
+  const unmatched: string[] = [];
+  const aliases = new Map<string, string>();
+  const used = new Set<string>();
+  const lists: RosterList[] = [];
+  for (const row of cache) {
+    const official = matchOfficialName(row.player, roster);
+    if (!official) {
+      unmatched.push(row.player);
+      if (boardCopies(row.mainboard) >= CONSTRUCTED_MIN_MAIN) lists.push(row);
+      continue;
+    }
+    aliases.set(row.player, official);
+    const key = foldName(official);
+    const premierRow = premierBy.get(key);
+    used.add(key);
+    if (preferPremierList(premierRow, row)) {
+      lists.push({ ...premierRow!, archetype: premierRow?.archetype || row.archetype });
+    } else {
+      lists.push({ ...row, player: official, archetype: premierRow?.archetype || row.archetype });
+    }
+  }
+  for (const row of premier) {
+    const key = foldName(row.player);
+    if (!key || used.has(key)) continue;
+    if (boardCopies(row.mainboard) < CONSTRUCTED_MIN_MAIN) continue;
+    lists.push(row);
+  }
+  return { lists, unmatched, aliases };
 }
 
 export function bundleFromItem(item: RawCacheItem, draftIdentified: boolean): PremierBundle {
   const decks = item.Decks ?? [];
   return {
-    lists: decks.filter((deck) => copies(deck.Mainboard) > 0).length,
-    sideboards: decks.reduce((sum, deck) => sum + copies(deck.Sideboard), 0),
+    lists: decks.filter((deck) => cardCopies(deck.Mainboard) > 0).length,
+    sideboards: decks.reduce((sum, deck) => sum + cardCopies(deck.Sideboard), 0),
     matches: (item.Rounds ?? []).reduce((sum, round) => sum + (round.Matches?.length ?? 0), 0),
     ranks: (item.Standings ?? []).filter((row) => row.Rank > 0).length,
     draftIdentified,
@@ -587,6 +702,7 @@ export function buildPremierItem(input: {
       Result: standing ? placeLabel(standing.rank) : null,
       Mainboard: deck.mainboard,
       Sideboard: deck.sideboard,
+      Archetype: deck.archetype,
     };
   });
   const standings: RawStanding[] = [...rankByPlayer.values()].map((standing) => ({
@@ -631,4 +747,162 @@ export function buildPremierItem(input: {
 export function roundNumberFromName(name: string): number | null {
   const match = name.match(/\bround\s+(\d+)\b/i);
   return match ? Number(match[1]) : null;
+}
+
+/** Draft round numbers from schedule prose, or null when the text has no round structure. */
+export function draftNumbersFromText(text: string | null | undefined): Set<number> | null {
+  if (!text?.trim()) return null;
+  const phases = parseSchedulePhases(text);
+  if (phases.length === 0) return null;
+  return draftRoundNumbers(phases);
+}
+
+/** Schedule text carried on the cache item itself, when a source included one. */
+export function draftNumbersFromCacheItem(item: RawCacheItem): Set<number> | null {
+  const tournament = item.Tournament as RawTournament;
+  return draftNumbersFromText([tournament?.Schedule, tournament?.Description].filter(Boolean).join("\n"));
+}
+
+/**
+ * Keep constructed rounds.
+ * A format label and a limited round name apply to every event. Numbered draft
+ * rounds apply only when this event's schedule (or an explicit set) says so.
+ */
+export function constructedCacheRounds(
+  rounds: readonly RawRound[] | null | undefined,
+  draftNumbers: ReadonlySet<number> | null,
+): RawRound[] {
+  const labeled: LabeledRound[] = (rounds ?? []).map((round) => ({
+    name: round.RoundName ?? "",
+    number: roundNumberFromName(round.RoundName ?? ""),
+    format: round.Format?.trim() || null,
+    matches: round.Matches ?? [],
+  }));
+  return toRawRounds(constructedRounds(labeled, draftNumbers));
+}
+
+export interface ConstructedCacheSelection {
+  decks: RawDeck[];
+  rounds: RawRound[];
+  droppedLists: number;
+}
+
+/**
+ * Drop main decks under 60 cards and draft rounds.
+ * `draftNumbers` omitted reads a schedule on the item. Pass null when the
+ * event has no schedule, so only round names and format labels are used.
+ */
+export function selectConstructedCache(
+  item: RawCacheItem,
+  draftNumbers?: ReadonlySet<number> | null,
+): ConstructedCacheSelection {
+  const numbers = draftNumbers === undefined ? draftNumbersFromCacheItem(item) : draftNumbers;
+  const decks: RawDeck[] = [];
+  let droppedLists = 0;
+  for (const deck of item.Decks ?? []) {
+    if (cardCopies(deck.Mainboard) < CONSTRUCTED_MIN_MAIN) {
+      droppedLists++;
+      continue;
+    }
+    decks.push(deck);
+  }
+  return { decks, rounds: constructedCacheRounds(item.Rounds, numbers), droppedLists };
+}
+
+const MAGIC_ORIGIN = "https://magic.gg";
+
+function absoluteMagic(href: string): string | null {
+  try {
+    return new URL(href, MAGIC_ORIGIN).toString();
+  } catch {
+    return null;
+  }
+}
+
+function htmlHrefs(html: string): string[] {
+  const text = decodeJsEscapes(html);
+  const hrefs = new Set<string>();
+  for (const match of text.matchAll(/href="([^"]+)"/gi)) hrefs.add(decodeBasicEntities(match[1]!));
+  for (const match of text.matchAll(/["'](\/(?:news|events|decklists)\/[a-z0-9-]+)["']/gi)) hrefs.add(match[1]!);
+  return [...hrefs];
+}
+
+/** True when `found` names the same premier event as `wanted`. Extra URL words are ignored. */
+function samePremier(found: string, wanted: string): boolean {
+  if (found === wanted) return true;
+  if (found.startsWith("worlds:") || wanted.startsWith("worlds:")) return false;
+  const have = new Set(found.replace(/^protour:/, "").split(/\s+/).filter(Boolean));
+  const need = wanted.replace(/^protour:/, "").split(/\s+/).filter(Boolean);
+  return need.length > 0 && need.every((token) => have.has(token));
+}
+
+/** Fact-sheet URL for this premier event, or null. */
+export function findFactSheetUrl(html: string, key: string): string | null {
+  let fallback: string | null = null;
+  for (const href of htmlHrefs(html)) {
+    if (!/fact-sheet/i.test(href)) continue;
+    const url = absoluteMagic(href);
+    if (!url) continue;
+    const sheetKey = premierKey(href);
+    if (!sheetKey || sheetKey === key || samePremier(sheetKey, key)) return url;
+    fallback ??= url;
+  }
+  return fallback;
+}
+
+/** Event page URL whose identity matches `key`. */
+export function findPremierEventUrl(html: string, key: string): string | null {
+  for (const href of htmlHrefs(html)) {
+    if (!/\/events\//i.test(href)) continue;
+    const eventKey = premierKey(href);
+    const worldsSlug = key.startsWith("worlds:") ? `world-championship-${key.slice("worlds:".length)}` : "";
+    if (eventKey !== key && !(worldsSlug && href.toLowerCase().includes(worldsSlug))) continue;
+    const url = absoluteMagic(href);
+    if (url) return url;
+  }
+  return null;
+}
+
+/**
+ * Draft round numbers for one premier event, from magic.gg's fact sheet.
+ * The sheet is this event's schedule. A miss returns null and does not guess
+ * a Pro Tour round list. Repeated labels share one index fetch and one result.
+ */
+export function createPremierDraftLookup(fetchText: (url: string) => Promise<string | null>) {
+  let indexPromise: Promise<string | null> | null = null;
+  const cache = new Map<string, Promise<Set<number> | null>>();
+  return (label: string): Promise<Set<number> | null> => {
+    const key = premierKey(label);
+    if (!key) return Promise.resolve(null);
+    const existing = cache.get(key);
+    if (existing) return existing;
+    const pending = (async (): Promise<Set<number> | null> => {
+      try {
+        indexPromise ??= fetchText(`${MAGIC_ORIGIN}/decklists`);
+        const index = await indexPromise;
+        if (!index) return null;
+        const link = discoverPremierLinks(index).find((item) => item.key === key || samePremier(item.key, key));
+        if (!link) return null;
+        const page = await fetchText(link.url);
+        if (!page) return null;
+        const direct = findFactSheetUrl(page, key);
+        if (direct) {
+          const sheet = await fetchText(direct);
+          return sheet ? draftNumbersFromText(sheet) : null;
+        }
+        const eventUrl = findPremierEventUrl(page, key);
+        if (!eventUrl) return null;
+        const eventHtml = await fetchText(eventUrl);
+        if (!eventHtml) return null;
+        const factUrl = findFactSheetUrl(eventHtml, key);
+        if (!factUrl) return null;
+        const sheet = await fetchText(factUrl);
+        return sheet ? draftNumbersFromText(sheet) : null;
+      } catch {
+        return null;
+      }
+    })();
+    cache.set(key, pending);
+    return pending;
+  };
 }

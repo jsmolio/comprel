@@ -1,0 +1,38 @@
+{
+  "Name": "Mission",
+  "IncludeColorInName": true,
+  "Conditions": [
+    {
+      "Type": "InMainboard",
+      "Cards": ["Anthropological Mission"]
+    },
+    {
+      "Type": "OneOrMoreInMainboard",
+      "Cards": ["Ral, Crackling Wit", "Sleight of Hand"]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": ["Nurturing Pixie"]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": ["Elusive Otter"]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": ["Slickshot Show-Off"]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": ["Ouroboroid"]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": ["Quantum Riddler"]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": ["The Naked Time"]
+    }
+  ]
+}

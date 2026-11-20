@@ -22,11 +22,12 @@ import { decidePublish } from "../src/lib/facts/publish-policy";
 import { FactStore, withPublishLock } from "../src/lib/facts/store";
 import type { SnapshotCoverage, VideosState } from "../src/lib/facts/types";
 import { VIDEO_MAX_RESULTS, refreshVideoState, selectVideoTargets, videoHorizonStart } from "../src/lib/facts/videos";
-import { reportIngestDiagnostic, type DiagnosticEvent } from "../src/lib/ingest-summary";
+import { reportIngestDiagnostic, shortListEvents, shortListStatus, shortListTotal, type DiagnosticEvent } from "../src/lib/ingest-summary";
 import { assessMtgoImport, importMtgo, type MtgoImportResult, type MtgoKnowledge } from "../src/lib/sources/mtgo";
-import { importPremierEvents } from "../src/lib/sources/premier";
+import { importPremierEvents, PREMIER_LOOKBACK_DAYS } from "../src/lib/sources/premier";
 import { searchYoutube } from "../src/lib/sources/youtube-search";
 import { discoverRecentCacheFiles, SOURCE_LABELS, type DiscoveredCacheFile } from "../src/lib/sources/mtgodecklistcache";
+import { createPremierDraftLookup, draftNumbersFromCacheItem, isPremierName } from "../src/lib/sources/premier-parse";
 import { FORMATS, type Format, type RawCacheItem } from "../src/lib/types";
 
 function flag(name: string): string | undefined {
@@ -97,6 +98,20 @@ async function fetchJson(url: string): Promise<FetchResult> {
   return { kind: "failed" };
 }
 
+async function readUpstream(url: string): Promise<string | null> {
+  try {
+    const res = await fetch(url, {
+      headers: { "User-Agent": "comprel-ingest" },
+      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+    });
+    if (!res.ok) return null;
+    const text = await res.text();
+    return text.trim() ? text : null;
+  } catch {
+    return null;
+  }
+}
+
 function cacheUrl(sourcePath: string): string {
   const parts = sourcePath.split("/").map((part) => encodeURIComponent(part));
   return `https://raw.githubusercontent.com/fbettega/MTG_decklistcache/main/${parts.join("/")}`;
@@ -144,7 +159,7 @@ async function main() {
   const log = (message: string) => console.log(message);
 
   if (args.has("--premier-dry-run")) {
-    const report = await importPremierEvents({ store, days, dryRun: true, log });
+    const report = await importPremierEvents({ store, days: PREMIER_LOOKBACK_DAYS, dryRun: true, log });
     for (const event of report.events) {
       log(`  ${event.name} [${event.format}] ${event.decks} decks, ${event.matches} matches, kept ${event.kept}`);
       for (const row of event.top) log(`    ${row.rank ?? "-"}. ${row.player} — ${row.archetype}`);
@@ -155,6 +170,22 @@ async function main() {
   const done = loadDone(store, version);
   const failed: string[] = [];
   let emptyFiles = 0;
+  const shortLists: { ref: string; dropped: number }[] = [];
+  const draftLookup = createPremierDraftLookup(readUpstream);
+  const draftNumbersFor = async (item: RawCacheItem, stableId: string): Promise<Set<number> | null> => {
+    const fromItem = draftNumbersFromCacheItem(item);
+    if (fromItem) return fromItem;
+    const label = `${item.Tournament?.Name ?? ""} ${stableId}`;
+    if (!isPremierName(label)) return null;
+    try {
+      return await draftLookup(label);
+    } catch {
+      return null;
+    }
+  };
+  const noteDropped = (ref: string, dropped: number) => {
+    if (dropped > 0) shortLists.push({ ref, dropped });
+  };
 
   const code = await withPublishLock(store, async () => {
     log(`→ Discovering ${days} cache day(s) across ${yearsToScan} year(s)…`);
@@ -188,7 +219,9 @@ async function main() {
       }
       const item = fetched.item;
       const stableId = file.fullPath.split("/").pop()!.replace(/\.json$/i, "");
-      const normalized = normalizeCacheItem(file.label, stableId, item, allow, version, file.fullPath);
+      const draftNumbers = await draftNumbersFor(item, stableId);
+      const normalized = normalizeCacheItem(file.label, stableId, item, allow, version, file.fullPath, undefined, draftNumbers);
+      if (normalized) noteDropped(file.fullPath, normalized.droppedLists ?? 0);
       if (normalized && file.label === "mtgo.com" && Object.values(normalized.boards).some(boardUseful)) {
         mtgoLists.add(stableId);
       }
@@ -213,9 +246,11 @@ async function main() {
     let premierMisses: DiagnosticEvent[] = [];
     let premierUnattempted: DiagnosticEvent[] = [];
     log("→ Premier events from magic.gg (Melee pairings when the tournament id is public)…");
-    const premier = await importPremierEvents({ store, days, log });
+    const premier = await importPremierEvents({ store, days: PREMIER_LOOKBACK_DAYS, log });
     premierMisses = premier.misses.map((miss) => ({ ref: miss.ref, reason: miss.reason, detail: miss.detail }));
     premierUnattempted = premier.unattempted.map((miss) => ({ ref: miss.ref, reason: miss.reason, detail: miss.detail }));
+    for (const row of premier.droppedLists) noteDropped(row.ref, row.dropped);
+    const unmatchedNames = premier.unmatchedNames.map((row) => ({ ref: row.ref, reason: "unmatched-name", detail: row.name }));
 
     let mtgo: SnapshotCoverage["mtgo"] = noMtgo ? "skipped" : "ok";
     let mtgoMissed = 0;
@@ -239,15 +274,17 @@ async function main() {
         days: Math.min(days, 4),
         log,
         known,
-        onItem: (item, slug, format) => {
+        onItem: async (item, slug, format) => {
           const inSlug = slug.match(/(\d{4})-(\d{2})-(\d{2})/);
           const date = new Date(item.Tournament.Date);
           const y = inSlug?.[1] ?? String(date.getUTCFullYear());
           const m = inSlug?.[2] ?? String(date.getUTCMonth() + 1).padStart(2, "0");
           const d = inSlug?.[3] ?? String(date.getUTCDate()).padStart(2, "0");
           const sourcePath = `Tournaments/MTGO/${y}/${m}/${d}/${slug}.json`;
-          const normalized = normalizeCacheItem("mtgo.com", slug, item, allow, version, sourcePath, format);
+          const draftNumbers = await draftNumbersFor(item, slug);
+          const normalized = normalizeCacheItem("mtgo.com", slug, item, allow, version, sourcePath, format, draftNumbers);
           if (!normalized) return;
+          noteDropped(`mtgo.com:${slug}`, normalized.droppedLists ?? 0);
           const kept = preserveArchetypes(store.readEvent(normalized.event.id), normalized);
           store.putEvent(kept.event);
           // Do not replace a good stored list with an empty scrape.
@@ -280,11 +317,12 @@ async function main() {
         lag == null
           ? "No cache folder date was discovered."
           : `Newest cache day ${span.newest}, ${lag} day(s) behind the publish clock.`;
+      const droppedLine = shortListStatus(shortListTotal(shortLists));
       reportIngestDiagnostic(
         "magic",
         {
           game: "Magic",
-          status: `${publish ? "Publish allowed." : "Publish held."} ${decision.reason} ${mtgoLine} ${lagLine}`,
+          status: `${publish ? "Publish allowed." : "Publish held."} ${decision.reason} ${mtgoLine} ${lagLine} ${droppedLine}`,
           sections: [
             {
               title: "Missed events",
@@ -308,6 +346,14 @@ async function main() {
             {
               title: "Premier unattempted",
               events: premierUnattempted,
+            },
+            {
+              title: "Dropped short lists",
+              events: shortListEvents(shortLists),
+            },
+            {
+              title: "Unmatched names",
+              events: unmatchedNames,
             },
           ],
         },
@@ -418,7 +464,8 @@ async function main() {
         if (fetched.kind === "missing" || fetched.kind === "empty") return { ok: false, reason: "empty" };
         if (fetched.kind !== "event") return { ok: false, reason: "network" };
         const stableId = sourcePath.split("/").pop()!.replace(/\.json$/i, "");
-        const normalized = normalizeCacheItem(label, stableId, fetched.item, allow, version, sourcePath);
+        const draftNumbers = await draftNumbersFor(fetched.item, stableId);
+        const normalized = normalizeCacheItem(label, stableId, fetched.item, allow, version, sourcePath, undefined, draftNumbers);
         return normalized ? { ok: true, normalized } : { ok: false, reason: "empty" };
       },
     });

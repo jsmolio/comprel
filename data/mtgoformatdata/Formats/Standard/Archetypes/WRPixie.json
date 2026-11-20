@@ -1,0 +1,50 @@
+{
+  "Name": "Pixie",
+  "IncludeColorInName": true,
+  "Conditions": [
+    {
+      "Type": "InMainboard",
+      "Cards": ["Nurturing Pixie"]
+    },
+    {
+      "Type": "InMainboard",
+      "Cards": ["The Naked Time"]
+    },
+    {
+      "Type": "InMainboard",
+      "Cards": ["Momo, Friendly Flier"]
+    },
+    {
+      "Type": "InMainboard",
+      "Cards": ["Sage of the Skies"]
+    },
+    {
+      "Type": "InMainboard",
+      "Cards": ["Starfield Shepherd"]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": ["Ouroboroid"]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": ["Badgermole Cub"]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": ["Slickshot Show-Off"]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": ["Elusive Otter"]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": ["Obsessive Pursuit"]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": ["Anthropological Mission"]
+    }
+  ]
+}

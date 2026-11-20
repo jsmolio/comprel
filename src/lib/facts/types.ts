@@ -34,6 +34,13 @@ export interface FactEvent {
   deckCount: number;
   decks: FactDeck[];
   matches: FactMatch[];
+  /**
+   * Magic.gg constructed lists have been merged onto this event.
+   * A later cache import must not replace them with the Melee snapshot.
+   */
+  premierLists?: boolean;
+  /** List attribution when it differs from the event id source. `magic.gg` after a premier upgrade. */
+  listSource?: string;
 }
 
 export interface PlayerBoard {
