@@ -64,7 +64,7 @@ export function normalizeCacheItem(
     };
     return {
       player: deck.Player,
-      archetype: cls.archetype,
+      archetype: deck.Archetype?.trim() || cls.archetype,
       colorName: cls.colorName,
       rank: rankFor(deck, standings),
     };

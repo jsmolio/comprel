@@ -117,7 +117,7 @@ function magicFormatParts(
       slug: event.slug,
       name: event.name,
       date: event.date,
-      source: event.source,
+      source: event.listSource ?? event.source,
       uri: event.uri,
       deckCount: event.decks.length,
       finishes: finishes.map(indexFinish),

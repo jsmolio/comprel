@@ -31,6 +31,8 @@ export interface RawDeck {
   AnchorUri?: string | null;
   Mainboard: RawDeckItem[];
   Sideboard: RawDeckItem[];
+  /** Official archetype from the list source, when it printed one. */
+  Archetype?: string | null;
 }
 
 export interface RawRound {

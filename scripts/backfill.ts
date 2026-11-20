@@ -24,7 +24,7 @@ import type { SnapshotCoverage, VideosState } from "../src/lib/facts/types";
 import { VIDEO_MAX_RESULTS, refreshVideoState, selectVideoTargets, videoHorizonStart } from "../src/lib/facts/videos";
 import { reportIngestDiagnostic, shortListEvents, shortListStatus, shortListTotal, type DiagnosticEvent } from "../src/lib/ingest-summary";
 import { assessMtgoImport, importMtgo, type MtgoImportResult, type MtgoKnowledge } from "../src/lib/sources/mtgo";
-import { importPremierEvents } from "../src/lib/sources/premier";
+import { importPremierEvents, PREMIER_LOOKBACK_DAYS } from "../src/lib/sources/premier";
 import { searchYoutube } from "../src/lib/sources/youtube-search";
 import { discoverRecentCacheFiles, SOURCE_LABELS, type DiscoveredCacheFile } from "../src/lib/sources/mtgodecklistcache";
 import { createPremierDraftLookup, draftNumbersFromCacheItem, isPremierName } from "../src/lib/sources/premier-parse";
@@ -159,7 +159,7 @@ async function main() {
   const log = (message: string) => console.log(message);
 
   if (args.has("--premier-dry-run")) {
-    const report = await importPremierEvents({ store, days, dryRun: true, log });
+    const report = await importPremierEvents({ store, days: PREMIER_LOOKBACK_DAYS, dryRun: true, log });
     for (const event of report.events) {
       log(`  ${event.name} [${event.format}] ${event.decks} decks, ${event.matches} matches, kept ${event.kept}`);
       for (const row of event.top) log(`    ${row.rank ?? "-"}. ${row.player} — ${row.archetype}`);
@@ -246,10 +246,11 @@ async function main() {
     let premierMisses: DiagnosticEvent[] = [];
     let premierUnattempted: DiagnosticEvent[] = [];
     log("→ Premier events from magic.gg (Melee pairings when the tournament id is public)…");
-    const premier = await importPremierEvents({ store, days, log });
+    const premier = await importPremierEvents({ store, days: PREMIER_LOOKBACK_DAYS, log });
     premierMisses = premier.misses.map((miss) => ({ ref: miss.ref, reason: miss.reason, detail: miss.detail }));
     premierUnattempted = premier.unattempted.map((miss) => ({ ref: miss.ref, reason: miss.reason, detail: miss.detail }));
     for (const row of premier.droppedLists) noteDropped(row.ref, row.dropped);
+    const unmatchedNames = premier.unmatchedNames.map((row) => ({ ref: row.ref, reason: "unmatched-name", detail: row.name }));
 
     let mtgo: SnapshotCoverage["mtgo"] = noMtgo ? "skipped" : "ok";
     let mtgoMissed = 0;
@@ -349,6 +350,10 @@ async function main() {
             {
               title: "Dropped short lists",
               events: shortListEvents(shortLists),
+            },
+            {
+              title: "Unmatched names",
+              events: unmatchedNames,
             },
           ],
         },

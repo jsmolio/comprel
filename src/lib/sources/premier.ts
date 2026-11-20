@@ -14,6 +14,8 @@ import {
   draftRoundNumbers,
   isoDate,
   meleeIdFromText,
+  matchOfficialName,
+  mergeRosterLists,
   parseMagicDecklists,
   parseMagicRoundResults,
   parseMagicStandings,
@@ -27,6 +29,7 @@ import {
   type ParsedDeck,
   type PremierBundle,
   type RobotsRules,
+  type RosterList,
 } from "./premier-parse";
 
 /**
@@ -41,10 +44,13 @@ const MAGIC_ORIGIN = "https://magic.gg";
 const MELEE_ORIGIN = "https://melee.gg";
 const USER_AGENT = "Mozilla/5.0 (compatible; comprel/1.0; +https://github.com/jsmolio/comprel)";
 
-const MAX_EVENTS = 2;
-const MAX_MAGIC = 36;
-const MAX_MELEE = 28;
+/** Safety cap. Upgraded events are skipped first, so a later run retries the rest. */
+const MAX_EVENTS = 8;
+const MAX_MAGIC = 48;
+const MAX_MELEE = 40;
 const BUDGET_MS = 180_000;
+/** Premier pages are fetched for this many days, not the full cache window. */
+export const PREMIER_LOOKBACK_DAYS = 14;
 const MAGIC_GAP_MS = 300;
 const PAGE_TIMEOUT_MS = 20_000;
 
@@ -91,6 +97,8 @@ export interface PremierRunResult {
   requests: { magic: number; melee: number };
   /** Constructed lists dropped because the main deck had fewer than 60 cards. */
   droppedLists: { ref: string; dropped: number }[];
+  /** Cache names that did not uniquely match the magic.gg roster. Private diagnostic only. */
+  unmatchedNames: { ref: string; name: string }[];
 }
 
 export type FetchInit = { method: "GET" | "POST"; body?: string; headers?: Record<string, string> };
@@ -120,6 +128,7 @@ const emptyResult = (): PremierRunResult => ({
   unattempted: [],
   requests: { magic: 0, melee: 0 },
   droppedLists: [],
+  unmatchedNames: [],
 });
 
 function absolute(href: string, origin: string): string | null {
@@ -158,7 +167,7 @@ async function runPremier(opts: PremierImportOptions, log: (message: string) => 
   const now = opts.now ?? Date.now;
   const sleep = opts.sleep ?? ((ms: number) => new Promise((resolve) => setTimeout(resolve, ms)));
   const fetchPage = opts.fetch ?? defaultFetch;
-  const days = opts.days ?? 5;
+  const days = opts.days ?? PREMIER_LOOKBACK_DAYS;
   const budgetMs = opts.budgetMs ?? BUDGET_MS;
   const maxEvents = opts.maxEvents ?? MAX_EVENTS;
   const maxMagic = opts.maxMagic ?? MAX_MAGIC;
@@ -230,11 +239,13 @@ async function runPremier(opts: PremierImportOptions, log: (message: string) => 
     return result;
   }
   const groups = groupLinks(discoverPremierLinks(index), now(), days);
-  const queue = groups.slice(0, maxEvents);
-  for (const skipped of groups.slice(maxEvents)) {
+  const upgraded = upgradedPremierKeys(opts.store);
+  const pending = groups.filter((group) => !upgraded.has(group.key));
+  const queue = pending.slice(0, maxEvents);
+  for (const skipped of pending.slice(maxEvents)) {
     result.unattempted.push({ ref: skipped.urls[0] ?? skipped.key, reason: "request-limit", detail: "event cap" });
   }
-  log(`  premier: ${groups.length} recent event(s), fetching ${queue.length}`);
+  log(`  premier: ${groups.length} recent event(s), ${upgraded.size} already upgraded, fetching ${queue.length}`);
 
   for (const group of queue) {
     try {
@@ -432,10 +443,11 @@ async function ingestGroup(input: IngestGroupInput): Promise<PremierEventReport 
     draftNumbers,
   });
   const players = built.item.Decks.map((deck) => deck.Player);
+  const align = (name: string) => matchOfficialName(name, players) ?? alignToDeck(name, players);
   for (const round of built.item.Rounds ?? []) {
     for (const match of round.Matches) {
-      match.Player1 = alignToDeck(match.Player1, players);
-      match.Player2 = alignToDeck(match.Player2, players);
+      match.Player1 = align(match.Player1);
+      match.Player2 = align(match.Player2);
     }
   }
 
@@ -459,12 +471,51 @@ async function ingestGroup(input: IngestGroupInput): Promise<PremierEventReport 
     if (!normalized.event.uri) normalized.event.uri = canonical.uri;
   }
 
+  const cacheBoards = canonical ? (input.store?.readBoards(canonical.id) ?? {}) : {};
+  const merged = mergeRosterLists(rosterLists(canonical, cacheBoards), rosterLists(normalized.event, normalized.boards));
+  for (const name of merged.unmatched) input.result.unmatchedNames.push({ ref: eventUrl ?? id, name });
   const incomingBundle = bundleFromItem(built.item, built.draftIdentified);
-  const storedBundle = canonical ? bundleFromStored(canonical, input.store?.readBoards(canonical.id) ?? null) : null;
-  const choice = chooseSides(incomingBundle, storedBundle);
+  const storedBundle = canonical ? bundleFromStored(canonical, cacheBoards) : null;
+  const choice = chooseSides(incomingBundle, storedBundle, Boolean(canonical?.premierLists));
+  const replaceLists = !canonical?.premierLists || choice.lists;
+  const hadPremierConstructed = rosterLists(normalized.event, normalized.boards).some(
+    (row) => row.mainboard.reduce((sum, card) => sum + (card.count > 0 ? card.count : 0), 0) >= 60,
+  );
+  if (replaceLists) {
+    normalized.event.decks = merged.lists.map((row) => ({
+      player: row.player,
+      archetype: row.archetype || "Unknown",
+      colorName: row.colorName,
+      rank: row.rank,
+    }));
+    normalized.event.deckCount = normalized.event.decks.length;
+    normalized.boards = Object.fromEntries(
+      merged.lists.map((row) => [
+        row.player,
+        { result: row.result, anchorUri: row.anchorUri, mainboard: row.mainboard, sideboard: row.sideboard },
+      ]),
+    );
+    const alias = (name: string) => merged.aliases.get(name) ?? name;
+    if (!choice.matches && canonical && !built.draftIdentified) {
+      normalized.event.matches = canonical.matches.map((match) => ({
+        player1: alias(match.player1),
+        player2: alias(match.player2),
+        winner: match.winner,
+      }));
+    } else {
+      normalized.event.matches = normalized.event.matches.map((match) => ({
+        player1: alias(match.player1),
+        player2: alias(match.player2),
+        winner: match.winner,
+      }));
+    }
+    if (hadPremierConstructed) {
+      normalized.event.premierLists = true;
+      normalized.event.listSource = "magic.gg";
+    }
+  }
   if (!input.dryRun && input.store) {
-    if (!canonical || choice.lists) {
-      if (!choice.matches && canonical && !built.draftIdentified) normalized.event.matches = canonical.matches;
+    if (replaceLists) {
       input.store.putEvent(normalized.event);
       input.store.writeBoards(normalized.event.id, normalized.boards);
     } else if (choice.matches && canonical) {
@@ -474,15 +525,17 @@ async function ingestGroup(input: IngestGroupInput): Promise<PremierEventReport 
         player2: alignToDeck(match.player2, players),
         winner: match.winner,
       }));
+      canonical.premierLists = true;
+      canonical.listSource = canonical.listSource ?? "magic.gg";
       input.store.putEvent(canonical);
     }
-    const keptId = !canonical || choice.lists ? normalized.event.id : canonical.id;
+    const keptId = replaceLists ? normalized.event.id : canonical!.id;
     for (const other of stored) {
       if (other.id !== keptId) input.store.deleteEvent(other.id);
     }
   }
 
-  const saved = !canonical || choice.lists ? normalized.event : canonical;
+  const saved = replaceLists ? normalized.event : canonical!;
   const top = [...saved.decks].sort((a, b) => (a.rank ?? 999) - (b.rank ?? 999) || a.player.localeCompare(b.player)).slice(0, 8);
   input.log(
     `  premier ${saved.name}: ${saved.decks.length} decks, ${saved.matches.length} constructed matches, draft rounds ${built.draftRounds.filter((n) => n > 0).join(",") || "none"}`,
@@ -598,14 +651,45 @@ function pickCanonical(events: readonly FactEvent[]): FactEvent | null {
 function chooseSides(
   incoming: PremierBundle,
   stored: PremierBundle | null,
+  storedPremier = false,
 ): { lists: boolean; matches: boolean } {
   if (!stored) return { lists: true, matches: incoming.matches > 0 };
-  const lists =
-    incoming.sideboards > stored.sideboards || (incoming.sideboards === stored.sideboards && incoming.lists > stored.lists);
+  // A premier upgrade stays until a later magic.gg pull has more sideboard cards.
+  const lists = storedPremier
+    ? incoming.sideboards > stored.sideboards
+    : incoming.sideboards > stored.sideboards || (incoming.sideboards === stored.sideboards && incoming.lists > stored.lists);
   // A labeled or scheduled constructed set replaces cache rounds that still
   // contain draft pairings, even when the cache counted more rows.
   const matches = incoming.matches > 0 && (incoming.draftIdentified || incoming.matches > stored.matches);
   return { lists, matches };
+}
+
+function rosterLists(event: FactEvent | null, boards: Record<string, PlayerBoard>): RosterList[] {
+  if (!event) return [];
+  return event.decks.map((deck) => {
+    const board = boards[deck.player];
+    return {
+      player: deck.player,
+      archetype: deck.archetype,
+      colorName: deck.colorName,
+      rank: deck.rank,
+      result: board?.result ?? null,
+      anchorUri: board?.anchorUri ?? null,
+      mainboard: board?.mainboard ?? [],
+      sideboard: board?.sideboard ?? [],
+    };
+  });
+}
+
+function upgradedPremierKeys(store: FactStore | undefined): Set<string> {
+  if (!store) return new Set();
+  const keys = new Set<string>();
+  for (const ref of store.listEventRefs()) {
+    if (!ref.premierLists) continue;
+    const key = premierKey(ref.id);
+    if (key) keys.add(key);
+  }
+  return keys;
 }
 
 function bundleFromStored(event: FactEvent, boards: Record<string, PlayerBoard> | null): PremierBundle {

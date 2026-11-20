@@ -488,13 +488,15 @@ test("premier misses are recorded for the ingest summary and not described as a 
   assert.match(backfill, /Premier misses/);
   assert.match(backfill, /Premier unattempted/);
   assert.match(backfill, /Dropped short lists/);
+  assert.match(backfill, /Unmatched names/);
+  assert.match(backfill, /PREMIER_LOOKBACK_DAYS/);
   assert.match(backfill, /shortListStatus/);
   assert.doesNotMatch(backfill, /coverage\.dropped|droppedLists:/);
   const app = fs.readFileSync("src/app/magic/page.tsx", "utf8");
   assert.doesNotMatch(app, /premier/i);
-  assert.doesNotMatch(app, /short-list|under 60/);
+  assert.doesNotMatch(app, /short-list|under 60|unmatched-name/);
   const layout = fs.readFileSync("src/app/magic/layout.tsx", "utf8");
-  assert.doesNotMatch(layout, /short-list|under 60|droppedLists/);
+  assert.doesNotMatch(layout, /short-list|under 60|droppedLists|unmatched-name/);
   const coverage = fs.readFileSync("src/lib/facts/types.ts", "utf8");
   assert.doesNotMatch(coverage, /droppedLists|short-list/);
   assert.equal(premierKey("World Championship 32 in Atlanta, USA"), "worlds:32");

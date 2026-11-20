@@ -37,6 +37,8 @@ interface IndexEntry {
   source: string;
   file: string;
   classifierVersion: string;
+  /** Copied from the event so a cache rewrite can see a premier upgrade without rereading the body. */
+  premierLists?: boolean;
 }
 
 interface IndexFile {
@@ -101,6 +103,14 @@ export class FactStore {
     const abs = path.join(this.factDir, rel);
     const body = `${stableStringify(event)}\n`;
     const previous = index.events[event.id];
+    if (previous && fs.existsSync(abs)) {
+      try {
+        const existing = JSON.parse(fs.readFileSync(abs, "utf8")) as FactEvent;
+        if (existing.premierLists && !event.premierLists) return { changed: false };
+      } catch {
+        /* A corrupt file is replaced below. */
+      }
+    }
     if (previous && previous.file !== rel && fs.existsSync(path.join(this.factDir, previous.file))) {
       fs.unlinkSync(path.join(this.factDir, previous.file));
     }
@@ -120,6 +130,7 @@ export class FactStore {
       source: event.source,
       file: rel,
       classifierVersion: event.classifierVersion,
+      ...(event.premierLists ? { premierLists: true } : {}),
     };
     this.saveIndex(shard);
     return { changed: true };
@@ -134,15 +145,21 @@ export class FactStore {
   }
 
   /** Index rows only. Does not read event bodies. */
-  listEventRefs(): { id: string; date: string; format: Format; source: string }[] {
+  listEventRefs(): { id: string; date: string; format: Format; source: string; premierLists?: boolean }[] {
     const indexDir = path.join(this.factDir, "index");
     if (!fs.existsSync(indexDir)) return [];
-    const refs: { id: string; date: string; format: Format; source: string }[] = [];
+    const refs: { id: string; date: string; format: Format; source: string; premierLists?: boolean }[] = [];
     for (const name of fs.readdirSync(indexDir)) {
       if (!name.endsWith(".json")) continue;
       const index = this.loadIndex(name.slice(0, 2));
       for (const [id, entry] of Object.entries(index.events)) {
-        refs.push({ id, date: entry.date, format: entry.format, source: entry.source });
+        refs.push({
+          id,
+          date: entry.date,
+          format: entry.format,
+          source: entry.source,
+          ...(entry.premierLists ? { premierLists: true } : {}),
+        });
       }
     }
     return refs;

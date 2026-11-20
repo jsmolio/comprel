@@ -99,6 +99,19 @@ export async function fillKeptBoards(args: {
 
   for (const [id, group] of byEvent) {
     const stored = args.readBoards(id) ?? {};
+    if (group.event.premierLists) {
+      // The cache file still holds draft lists. Do not fetch it over magic.gg boards.
+      const merged: Record<string, PlayerBoard> = {};
+      for (const [player, board] of Object.entries(stored)) {
+        if (boardUseful(board)) merged[player] = board;
+      }
+      for (const player of group.players) {
+        if (boardUseful(stored[player])) stats.alreadyStored++;
+        else stats.negativeSkipped++;
+      }
+      if (Object.keys(merged).length) boards.set(id, merged);
+      continue;
+    }
     const needFetch: string[] = [];
     for (const player of group.players) {
       if (boardUseful(stored[player])) continue;

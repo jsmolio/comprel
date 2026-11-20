@@ -79,6 +79,45 @@ export function namesMatch(a: string, b: string): boolean {
   return lf.startsWith(rf) || rf.startsWith(lf);
 }
 
+/**
+ * A one-word handle such as "EduS" against "Eduardo Sajgalik":
+ * a prefix of the first name plus a prefix of the last name.
+ */
+export function handleMatches(handle: string, official: string): boolean {
+  const tokens = foldName(handle).split(" ").filter(Boolean);
+  if (tokens.length !== 1) return false;
+  const compact = tokens[0]!;
+  if (compact.length < 4) return false;
+  const parts = foldName(official).split(" ").filter(Boolean);
+  if (parts.length < 2) return false;
+  const first = parts[0]!;
+  const last = parts[parts.length - 1]!;
+  for (let i = 3; i < compact.length; i++) {
+    const head = compact.slice(0, i);
+    const tail = compact.slice(i);
+    if (first.startsWith(head) && last.startsWith(tail)) return true;
+  }
+  return false;
+}
+
+/**
+ * Map a cache name or handle onto one official roster name.
+ * Case, diacritics, word order, first-name prefixes, and unique handles count.
+ * More than one official name is a miss.
+ */
+export function matchOfficialName(name: string, roster: readonly string[]): string | null {
+  const hits: string[] = [];
+  const seen = new Set<string>();
+  for (const official of roster) {
+    const key = foldName(official);
+    if (!key || seen.has(key)) continue;
+    if (!namesMatch(name, official) && !handleMatches(name, official)) continue;
+    seen.add(key);
+    hits.push(official.trim());
+  }
+  return hits.length === 1 ? hits[0]! : null;
+}
+
 export function displayName(value: string): string {
   const text = decodeBasicEntities(value).replace(/\s+/g, " ").trim();
   const comma = text.match(/^([^,]+),\s*(.+)$/);
@@ -209,6 +248,8 @@ export function discoverPremierLinks(html: string, origin = "https://magic.gg"):
 
 export interface ParsedDeck {
   player: string;
+  /** Printed archetype, such as the deck-list subtitle. Null when the page did not name one. */
+  archetype: string | null;
   format: string | null;
   eventName: string | null;
   eventDay: string | null;
@@ -244,8 +285,10 @@ export function parseMagicDecklists(html: string): ParsedDeck[] {
     if (mainboard.length === 0) continue;
     const player = displayName(attr(match[1]!, "deck-title") ?? "");
     if (!player) continue;
+    const archetype = attr(match[1]!, "subtitle")?.replace(/\s+/g, " ").trim() || null;
     decks.push({
       player,
+      archetype,
       format: attr(match[1]!, "format"),
       eventName: attr(match[1]!, "event-name"),
       eventDay: parseHumanDate(attr(match[1]!, "event-date")),
@@ -526,6 +569,73 @@ export function cardCopies(cards: { Count: number }[] | null | undefined): numbe
 /** Constructed main decks are 60 cards. A shorter list in these formats is a draft (or partial) list. */
 export const CONSTRUCTED_MIN_MAIN = 60;
 
+export interface RosterList {
+  player: string;
+  archetype: string | null;
+  colorName: string | null;
+  rank: number | null;
+  result: string | null;
+  anchorUri: string | null;
+  mainboard: { name: string; count: number }[];
+  sideboard: { name: string; count: number }[];
+}
+
+function boardCopies(cards: { count: number }[] | null | undefined): number {
+  return (cards ?? []).reduce((sum, card) => sum + (card.count > 0 ? card.count : 0), 0);
+}
+
+/** A magic.gg constructed list (60 main, usually 15 side) beats a cached draft list. */
+export function preferPremierList(premier: RosterList | undefined, cache: RosterList | undefined): boolean {
+  if (!premier) return false;
+  if (boardCopies(premier.mainboard) < CONSTRUCTED_MIN_MAIN) return false;
+  if (boardCopies(cache?.mainboard) < CONSTRUCTED_MIN_MAIN) return true;
+  const premierSide = boardCopies(premier.sideboard);
+  const cacheSide = boardCopies(cache?.sideboard);
+  if (premierSide !== cacheSide) return premierSide > cacheSide;
+  return boardCopies(premier.mainboard) >= boardCopies(cache?.mainboard);
+}
+
+/**
+ * Keep one list per player. Official roster names and archetypes win.
+ * A constructed magic.gg list replaces a shorter cached list for that player.
+ * Cache names that match nobody, or more than one official name, are unmatched.
+ */
+export function mergeRosterLists(
+  cache: readonly RosterList[],
+  premier: readonly RosterList[],
+): { lists: RosterList[]; unmatched: string[]; aliases: Map<string, string> } {
+  const roster = premier.map((row) => row.player);
+  const premierBy = new Map(premier.map((row) => [foldName(row.player), row]));
+  const unmatched: string[] = [];
+  const aliases = new Map<string, string>();
+  const used = new Set<string>();
+  const lists: RosterList[] = [];
+  for (const row of cache) {
+    const official = matchOfficialName(row.player, roster);
+    if (!official) {
+      unmatched.push(row.player);
+      if (boardCopies(row.mainboard) >= CONSTRUCTED_MIN_MAIN) lists.push(row);
+      continue;
+    }
+    aliases.set(row.player, official);
+    const key = foldName(official);
+    const premierRow = premierBy.get(key);
+    used.add(key);
+    if (preferPremierList(premierRow, row)) {
+      lists.push({ ...premierRow!, archetype: premierRow?.archetype || row.archetype });
+    } else {
+      lists.push({ ...row, player: official, archetype: premierRow?.archetype || row.archetype });
+    }
+  }
+  for (const row of premier) {
+    const key = foldName(row.player);
+    if (!key || used.has(key)) continue;
+    if (boardCopies(row.mainboard) < CONSTRUCTED_MIN_MAIN) continue;
+    lists.push(row);
+  }
+  return { lists, unmatched, aliases };
+}
+
 export function bundleFromItem(item: RawCacheItem, draftIdentified: boolean): PremierBundle {
   const decks = item.Decks ?? [];
   return {
@@ -592,6 +702,7 @@ export function buildPremierItem(input: {
       Result: standing ? placeLabel(standing.rank) : null,
       Mainboard: deck.mainboard,
       Sideboard: deck.sideboard,
+      Archetype: deck.archetype,
     };
   });
   const standings: RawStanding[] = [...rankByPlayer.values()].map((standing) => ({
