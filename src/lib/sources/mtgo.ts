@@ -60,7 +60,10 @@ const SCRAPE_BUDGET_MS = 6 * 60_000;
 // Two tries for a timeout or a 200 with no embedded decklist. A parsed page
 // that lists zero decks is not retried: that publication is empty.
 const EVENT_ATTEMPTS = 2;
+// A timeout, a 200 with no decklist links, or a parsed listing with no recent
+// tracked events is retried. A 404 is not.
 const INDEX_ATTEMPTS = 3;
+const INDEX_BACKOFF_MS = 700;
 const EVENT_BACKOFF_MS = 1_000;
 
 // Fast failures must not walk the whole index. Hangs hit the time budget first.
@@ -193,6 +196,8 @@ export interface MtgoImportResult {
   /** Why a non-structural listing fetch failed. Absent when the index loaded or the failure is structural. */
   indexError?: string;
   found: number; // tracked-format events discovered on the index
+  /** Unique decklist slugs on a parsed listing. Zero when the index did not parse. */
+  indexLinks: number;
   events: number;
   decks: number;
   errors: number;
@@ -202,9 +207,10 @@ export interface MtgoImportResult {
   /** Not requested. Separate from misses. */
   unattempted: MtgoUnattempted[];
   requests: number;
-  // Listing 404, a listing with no decklist links, or every fetched page was a
-  // 200 whose decklist embed was missing. Timeouts, HTTP errors, empty
-  // decklists, and an unreachable listing are partial and do not block publish.
+  // Listing 404, a listing that still has no decklist links after retries, or
+  // every fetched page was a 200 whose decklist embed was missing. Timeouts,
+  // HTTP errors, empty decklists, an unreachable listing, and a parsed listing
+  // with no recent tracked events are partial and do not block publish.
   structuralFailure: boolean;
 }
 
@@ -220,14 +226,15 @@ export interface MtgoSourceAssessment {
   mtgoUnattempted: number;
   mtgoMisses?: { slug: string; url: string; reason: string }[];
   mtgoUnattemptedEvents?: MtgoUnattempted[];
-  /** Rows for the private job summary. Includes one listing-level row when the index could not be fetched. */
+  /** Rows for the private job summary. Includes one listing-level row when the index could not be fetched or had no recent tracked events. */
   diagnosticMisses: MtgoDiagnosticMiss[];
 }
 
 /**
  * Private coverage status for one scrape.
  * An unreachable listing is partial, with reason `listing-unreachable`.
- * Structural failures stay unavailable. A fetched listing with no misses is ok.
+ * A parsed listing with no recent tracked events is partial, with reason `listing-stale`.
+ * Structural failures stay unavailable. A fetched listing with recent events and no misses is ok.
  */
 export function assessMtgoImport(scraped: MtgoImportResult): MtgoSourceAssessment {
   const eventMisses = scraped.misses.map((miss) => ({ slug: miss.slug, url: miss.url, reason: miss.reason }));
@@ -243,6 +250,17 @@ export function assessMtgoImport(scraped: MtgoImportResult): MtgoSourceAssessmen
     const reason = "listing-unreachable";
     const row: MtgoDiagnosticMiss = { ref: INDEX_URL, reason };
     if (scraped.indexError) row.detail = scraped.indexError;
+    return {
+      mtgo: "partial",
+      mtgoMissed: 1,
+      mtgoUnattempted: 0,
+      mtgoMisses: [{ slug: "listing", url: INDEX_URL, reason }],
+      diagnosticMisses: [row],
+    };
+  }
+  if (scraped.found === 0) {
+    const reason = "listing-stale";
+    const row: MtgoDiagnosticMiss = { ref: INDEX_URL, reason, detail: `${scraped.indexLinks} decklist links` };
     return {
       mtgo: "partial",
       mtgoMissed: 1,
@@ -306,6 +324,22 @@ function retryableFetch(page: MtgoPageFetch): boolean {
   return page.kind === "http" && page.status !== 404 && (page.status === 429 || page.status >= 500);
 }
 
+function decklistSlugs(html: string): string[] {
+  return [...new Set([...html.matchAll(/\/decklist\/([a-z0-9-]+)/gi)].map((m) => m[1].toLowerCase()))];
+}
+
+function trackedSlugInWindow(slug: string, cutoffMs: number): boolean {
+  const fmt = FORMAT_PREFIX[slug.split("-")[0]];
+  const day = mtgoSlugDay(slug);
+  return Boolean(fmt) && Boolean(day) && new Date(day + "T00:00:00Z").getTime() >= cutoffMs;
+}
+
+/** A 200 listing worth another fetch: no decklist links, or none in the recent tracked window. */
+function indexListingProblem(html: string, cutoffMs: number): "no-links" | "no-recent" | null {
+  if (!/\/decklist\//i.test(html)) return "no-links";
+  return decklistSlugs(html).some((slug) => trackedSlugInWindow(slug, cutoffMs)) ? null : "no-recent";
+}
+
 async function defaultFetchPage(url: string): Promise<MtgoPageFetch> {
   try {
     const res = await fetch(url, { headers: UA, signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
@@ -350,6 +384,7 @@ export async function importMtgo(
   const result: MtgoImportResult = {
     indexOk: false,
     found: 0,
+    indexLinks: 0,
     events: 0,
     decks: 0,
     errors: 0,
@@ -361,7 +396,10 @@ export async function importMtgo(
   };
   const fetchPage = opts.fetchPage ?? defaultFetchPage;
 
+  const cutoff = clock() - days * 86_400_000;
   let indexPage: MtgoPageFetch = { kind: "network", detail: "no attempt" };
+  let parsedHtml: string | null = null;
+  let sawLinklessOk = false;
   for (let attempt = 0; attempt < INDEX_ATTEMPTS; attempt++) {
     indexPage = await fetchPage(INDEX_URL);
     if (indexPage.kind === "http" && indexPage.status === 404) {
@@ -369,39 +407,51 @@ export async function importMtgo(
       log("  ! MTGO listing returned 404 — the decklists URL changed; needs a code fix");
       return result;
     }
-    if (!retryableFetch(indexPage) && indexPage.kind === "ok") break;
-    if (!retryableFetch(indexPage) && indexPage.kind === "http") break;
+    let problem: "no-links" | "no-recent" | null = null;
+    if (indexPage.kind === "ok") {
+      problem = indexListingProblem(indexPage.html, cutoff);
+      if (problem === "no-links") sawLinklessOk = true;
+      else {
+        parsedHtml = indexPage.html;
+        if (!problem) break;
+      }
+    } else if (!retryableFetch(indexPage)) break;
     if (attempt === INDEX_ATTEMPTS - 1) break;
-    log(`  ! MTGO listing attempt ${attempt + 1} failed (${describeFetch(indexPage)}) — retrying`);
-    await pause(700 * (attempt + 1));
+    const why =
+      indexPage.kind === "ok"
+        ? problem === "no-links"
+          ? "200 with no decklist links"
+          : "0 recent events in tracked formats"
+        : describeFetch(indexPage);
+    log(`  ! MTGO listing attempt ${attempt + 1} failed (${why}) — retrying`);
+    await pause(INDEX_BACKOFF_MS * (attempt + 1));
   }
-  if (indexPage.kind !== "ok") {
+  if (!parsedHtml) {
+    if (sawLinklessOk) {
+      result.structuralFailure = true;
+      log("  ! MTGO listing returned 200 but no decklist links — the index markup changed");
+      return result;
+    }
     result.indexError = describeFetch(indexPage);
     log(`  ! MTGO listing unreachable after ${INDEX_ATTEMPTS} attempts (${result.indexError}) — transient, skipping this cycle`);
     return result;
   }
-  const indexHtml = indexPage.html;
-  if (!/\/decklist\//i.test(indexHtml)) {
-    result.structuralFailure = true;
-    log("  ! MTGO listing returned 200 but no decklist links — the index markup changed");
-    return result;
-  }
+  const indexHtml = parsedHtml;
   result.indexOk = true;
 
   const today = opts.today ?? new Date(clock()).toISOString().slice(0, 10);
-  const slugs = [...new Set([...indexHtml.matchAll(/\/decklist\/([a-z0-9-]+)/gi)].map((m) => m[1].toLowerCase()))];
-  const cutoff = clock() - days * 86_400_000;
-  const wanted = slugs.filter((s) => {
-    const fmt = FORMAT_PREFIX[s.split("-")[0]];
-    const day = mtgoSlugDay(s);
-    return Boolean(fmt) && Boolean(day) && new Date(day + "T00:00:00Z").getTime() >= cutoff;
-  });
+  const slugs = decklistSlugs(indexHtml);
+  result.indexLinks = slugs.length;
+  const wanted = slugs.filter((slug) => trackedSlugInWindow(slug, cutoff));
   result.found = wanted.length;
   const ordered = prioritizeMtgoSlugs(wanted, known, today);
   result.skippedStored = ordered.skippedStored.length;
   log(
     `  MTGO: ${wanted.length} recent events in tracked formats; ${ordered.skippedStored.length} already stored with lists, ${ordered.queue.length} to fetch`,
   );
+  if (wanted.length === 0) {
+    log(`  ! MTGO listing had 0 recent events in tracked formats (${slugs.length} decklist links)`);
+  }
 
   const deadline = clock() + budgetMs;
   let stop: MtgoUnattempted["reason"] | null = null;

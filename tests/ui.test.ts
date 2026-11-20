@@ -156,6 +156,7 @@ test("pages and components do not render ingest miss diagnostics", () => {
     /scrape budget/i,
     /scrape was unavailable/i,
     /listing-unreachable/i,
+    /listing-stale/i,
     /previously stored results/i,
     /CoverageNote/,
     /days behind/i,
