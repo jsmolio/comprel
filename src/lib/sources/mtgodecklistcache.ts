@@ -3,6 +3,12 @@ import { prisma } from "../db";
 import { detectFormat } from "../format";
 import { classify } from "../archetype/classify";
 import { parseDeckResult, parseMatchResult, isByePlayer } from "../result";
+import {
+  createPremierDraftLookup,
+  draftNumbersFromCacheItem,
+  isPremierName,
+  selectConstructedCache,
+} from "./premier-parse";
 import type { BoardCard, Format, RawCacheItem, RawDeck, RawStanding } from "../types";
 
 // Ingests normalized tournament JSON from the open, actively-maintained
@@ -168,6 +174,7 @@ export async function importCacheItem(
   allow: Set<Format>,
   formatHint?: Format,
   keepBoardsSince?: number,
+  draftNumbers?: ReadonlySet<number> | null,
 ) {
   // Prefer the cache's explicit Formats field, then fall back to name/filename.
   const format = formatHint ?? detectFormat(item.Tournament?.Formats, item.Tournament?.Name, stableId);
@@ -176,14 +183,17 @@ export async function importCacheItem(
   const date = new Date(item.Tournament.Date);
   const id = `${source}:${stableId}`;
   const standings = new Map((item.Standings ?? []).map((s) => [s.Player, s]));
-  const rounds = item.Rounds ?? [];
+  // Main decks under 60 cards are not constructed. Draft rounds come from this
+  // event's schedule when we have one, and from round names and format labels.
+  const selected = selectConstructedCache(item, draftNumbers);
+  const rounds = selected.rounds;
   const hasPairings = rounds.some((r) => (r.Matches ?? []).length > 0);
   // Decklists are only stored for recent events (to bound DB size); older decks
   // keep their classified archetype + record but drop the card lists. Aggregation
   // never reads the lists, so this does NOT affect meta share / win rates.
   const keepBoards = keepBoardsSince === undefined || date.getTime() >= keepBoardsSince;
 
-  const decks = (item.Decks ?? []).map((d) => {
+  const decks = selected.decks.map((d) => {
     const main = toBoard(d.Mainboard);
     const side = toBoard(d.Sideboard);
     const cls = classify(format, main, side); // classify on the full list regardless
@@ -238,11 +248,17 @@ export async function importCacheItem(
     }),
     prisma.deck.deleteMany({ where: { tournamentId: id } }),
     prisma.match.deleteMany({ where: { tournamentId: id } }),
-    prisma.deck.createMany({ data: decks }),
-    prisma.match.createMany({ data: matches }),
+    ...(decks.length ? [prisma.deck.createMany({ data: decks })] : []),
+    ...(matches.length ? [prisma.match.createMany({ data: matches })] : []),
   ]);
 
-  return { imported: true as const, format, decks: decks.length, matches: matches.length };
+  return {
+    imported: true as const,
+    format,
+    decks: decks.length,
+    matches: matches.length,
+    droppedLists: selected.droppedLists,
+  };
 }
 
 export interface ImportOptions {
@@ -264,6 +280,8 @@ export interface ImportSummary {
   tournaments: number;
   decks: number;
   matches: number;
+  /** Constructed lists dropped because the main deck had fewer than 60 cards. Private log only. */
+  droppedLists: number;
   byFormat: Record<string, number>;
 }
 
@@ -277,7 +295,20 @@ export async function importMtgoCache(opts: ImportOptions = {}): Promise<ImportS
   const branch = (await ghJson<{ default_branch: string }>(`${API}/repos/${REPO}`)).default_branch;
   log(`cache default branch: ${branch}`);
 
-  const summary: ImportSummary = { files: 0, skipped: 0, tournaments: 0, decks: 0, matches: 0, byFormat: {} };
+  const summary: ImportSummary = { files: 0, skipped: 0, tournaments: 0, decks: 0, matches: 0, droppedLists: 0, byFormat: {} };
+  const draftLookup = createPremierDraftLookup(async (url) => {
+    try {
+      const res = await fetch(url, {
+        headers: { "User-Agent": "comprel-ingest" },
+        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+      });
+      if (!res.ok) return null;
+      const text = await res.text();
+      return text.trim() ? text : null;
+    } catch {
+      return null;
+    }
+  });
 
   const existingIds = opts.skipExisting
     ? new Set((await prisma.tournament.findMany({ select: { id: true } })).map((t) => t.id))
@@ -315,11 +346,15 @@ export async function importMtgoCache(opts: ImportOptions = {}): Promise<ImportS
           continue;
         }
         const item = (await res.json()) as RawCacheItem;
-        const out = await importCacheItem(label, base, item, allow, undefined, keepBoardsSince);
+        const labelText = `${item.Tournament?.Name ?? ""} ${base}`;
+        let draftNumbers = draftNumbersFromCacheItem(item);
+        if (!draftNumbers && isPremierName(labelText)) draftNumbers = await draftLookup(labelText);
+        const out = await importCacheItem(label, base, item, allow, undefined, keepBoardsSince, draftNumbers);
         if (out.imported) {
           summary.tournaments++;
           summary.decks += out.decks;
           summary.matches += out.matches;
+          summary.droppedLists += out.droppedLists;
           summary.byFormat[out.format] = (summary.byFormat[out.format] ?? 0) + out.decks;
         }
       } catch (e) {

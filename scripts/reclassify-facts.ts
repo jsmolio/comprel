@@ -13,7 +13,33 @@ import { publishSnapshot } from "../src/lib/facts/publish";
 import { FactStore, withPublishLock } from "../src/lib/facts/store";
 import type { PlayerBoard } from "../src/lib/facts/types";
 import { SOURCE_LABELS } from "../src/lib/sources/mtgodecklistcache";
+import { createPremierDraftLookup, draftNumbersFromCacheItem, isPremierName } from "../src/lib/sources/premier-parse";
 import { FORMATS, type Format, type RawCacheItem } from "../src/lib/types";
+
+async function readUpstream(url: string): Promise<string | null> {
+  try {
+    const res = await fetch(url, { headers: { "User-Agent": "comprel-reclassify" }, signal: AbortSignal.timeout(30_000) });
+    if (!res.ok) return null;
+    const text = await res.text();
+    return text.trim() ? text : null;
+  } catch {
+    return null;
+  }
+}
+
+const draftLookup = createPremierDraftLookup(readUpstream);
+
+async function draftNumbersFor(item: RawCacheItem, stableId: string): Promise<Set<number> | null> {
+  const fromItem = draftNumbersFromCacheItem(item);
+  if (fromItem) return fromItem;
+  const label = `${item.Tournament?.Name ?? ""} ${stableId}`;
+  if (!isPremierName(label)) return null;
+  try {
+    return await draftLookup(label);
+  } catch {
+    return null;
+  }
+}
 
 async function fetchItem(sourcePath: string): Promise<RawCacheItem | null> {
   const url = `https://raw.githubusercontent.com/fbettega/MTG_decklistcache/main/${sourcePath
@@ -51,7 +77,8 @@ async function main() {
       const folder = event.sourcePath.split("/")[1];
       const label = SOURCE_LABELS[folder] ?? event.source;
       const stableId = event.id.startsWith(`${label}:`) ? event.id.slice(label.length + 1) : event.sourcePath.split("/").pop()!.replace(/\.json$/i, "");
-      const normalized = normalizeCacheItem(label, stableId, item, allow, version, event.sourcePath, event.format);
+      const draftNumbers = await draftNumbersFor(item, stableId);
+      const normalized = normalizeCacheItem(label, stableId, item, allow, version, event.sourcePath, event.format, draftNumbers);
       if (!normalized) {
         kept++;
         console.log(`  ! ${event.id}: refetch was not a tracked event, keeping stored archetypes`);

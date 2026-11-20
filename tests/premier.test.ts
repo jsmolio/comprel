@@ -8,9 +8,11 @@ import { FactStore } from "../src/lib/facts/store";
 import { importPremierEvents, type FetchInit } from "../src/lib/sources/premier";
 import {
   constructedRounds,
+  createPremierDraftLookup,
   draftRoundNumbers,
   incomingIsFuller,
   isDraftRound,
+  isLimitedRoundLabel,
   parseMagicDecklists,
   parseMagicResultRow,
   parseMagicStandings,
@@ -20,7 +22,9 @@ import {
   parseSchedulePhases,
   premierKey,
   robotsAllow,
+  selectConstructedCache,
 } from "../src/lib/sources/premier-parse";
+import { detectFormat } from "../src/lib/format";
 import { topFinishes } from "../src/lib/tournaments/select";
 import { selectMagicEvents } from "../src/lib/tournaments/magic";
 import { FORMATS } from "../src/lib/types";
@@ -190,9 +194,9 @@ test("cache and premier copies of Worlds collapse, and draft rounds stay out of 
     [
       "https://magic.gg/decklists/magic-world-championship-32-standard-decklists-a-l",
       `<deck-list deck-title="Stefan Schütz" format="Standard" event-date="November 13, 2026" event-name="World Championship 32">
-        <main-deck>6 Island\n4 Opt</main-deck><side-board>3 Spell Pierce\n2 Annul</side-board></deck-list>
+        <main-deck>${Array.from({ length: 15 }, () => "4 Island").join("\n")}</main-deck><side-board>3 Spell Pierce\n2 Annul</side-board></deck-list>
         <deck-list deck-title="Abe Schnake" format="Standard" event-date="November 13, 2026" event-name="World Championship 32">
-        <main-deck>4 Swamp</main-deck><side-board>1 Duress</side-board></deck-list>
+        <main-deck>${Array.from({ length: 15 }, () => "4 Swamp").join("\n")}</main-deck><side-board>1 Duress</side-board></deck-list>
         <a href="/events/magic-world-championship-32">event</a>
         <a href="/news/world-championship-32-fact-sheet-for-competitors">sheet</a>
         <a href="https://magic.gg/news/magic-world-championship-32-final-standings">standings</a>`,
@@ -352,13 +356,149 @@ test("named draft rounds are dropped on the cache path without using Pro Tour nu
   );
 });
 
+function copies(name: string, count: number) {
+  return Array.from({ length: count }, () => ({ Count: 1, CardName: name }));
+}
+
+test("Unlimited is not limited, and a constructed main under 60 cards is dropped", () => {
+  assert.equal(isLimitedRoundLabel("Unlimited"), false);
+  assert.equal(isLimitedRoundLabel("Vintage Unlimited"), false);
+  assert.equal(isLimitedRoundLabel("Unlimited Round 1"), false);
+  assert.equal(isLimitedRoundLabel("Limited"), true);
+  assert.equal(isLimitedRoundLabel("Booster Draft"), true);
+  assert.equal(detectFormat("Vintage Unlimited"), "Vintage");
+  assert.equal(detectFormat("Unlimited"), null);
+
+  const selected = selectConstructedCache(
+    {
+      Tournament: { Name: "Vintage Unlimited", Date: "2026-11-01T00:00:00.000Z", Formats: "Vintage" },
+      Decks: [
+        { Player: "Ada", Mainboard: copies("Island", 40), Sideboard: [] },
+        { Player: "Bea", Mainboard: copies("Island", 60), Sideboard: [] },
+        { Player: "Cy", Mainboard: copies("Island", 61), Sideboard: [] },
+      ],
+      Rounds: [
+        { RoundName: "Unlimited Round 1", Matches: [{ Player1: "Bea", Player2: "Cy", Result: "2-0-0" }] },
+        { RoundName: "Draft Round 1", Matches: [{ Player1: "Bea", Player2: "Ada", Result: "2-1-0" }] },
+      ],
+    },
+  );
+  assert.equal(selected.droppedLists, 1);
+  assert.deepEqual(selected.decks.map((deck) => deck.Player), ["Bea", "Cy"]);
+  assert.deepEqual(selected.rounds.map((round) => round.RoundName), ["Unlimited Round 1"]);
+});
+
+test("a cache premier event drops draft lists and schedule draft rounds, including Worlds round 8", () => {
+  const normalized = normalizeCacheItem(
+    "melee.gg",
+    "world-championship-32-in-atlanta-usa-standard-471980-2026-11-13",
+    {
+      Tournament: {
+        Name: "World Championship 32 in Atlanta, USA",
+        Date: "2026-11-13T14:00:00.000Z",
+        Formats: "Standard",
+        Uri: "https://melee.gg/Tournament/View/471980",
+        Schedule: WORLDS_SHEET,
+      },
+      Decks: [
+        { Player: "Stefan Schütz", Result: "1st Place", Mainboard: copies("Island", 40), Sideboard: [] },
+        {
+          Player: "James Drake",
+          Result: "4th Place",
+          Mainboard: [...copies("Temple Garden", 4), ...copies("Forest", 28), ...copies("Llanowar Elves", 4), ...copies("Plains", 24)],
+          Sideboard: copies("Seam Rip", 2),
+        },
+      ],
+      Standings: [
+        { Rank: 1, Player: "Stefan Schütz", Points: 33, Wins: 13, Losses: 3, Draws: 0, OMWP: 0, GWP: 0, OGWP: 0 },
+        { Rank: 4, Player: "James Drake", Points: 30, Wins: 11, Losses: 5, Draws: 0, OMWP: 0, GWP: 0, OGWP: 0 },
+      ],
+      Rounds: [
+        { RoundName: "Round 8", Matches: [{ Player1: "Stefan Schütz", Player2: "James Drake", Result: "2-0-0" }] },
+        { RoundName: "Round 12", Matches: [{ Player1: "James Drake", Player2: "Abe Schnake", Result: "2-1-0" }] },
+        { RoundName: "Round 4", Format: "Standard", Matches: [{ Player1: "James Drake", Player2: "Abe Schnake", Result: "2-0-0" }] },
+      ],
+    },
+    new Set(FORMATS),
+    "test",
+    null,
+  );
+  assert.equal(normalized?.droppedLists, 1);
+  assert.deepEqual(normalized?.event.decks.map((deck) => deck.player), ["James Drake"]);
+  assert.equal(normalized?.event.deckCount, 1);
+  assert.equal(normalized?.boards["Stefan Schütz"], undefined);
+  assert.equal(normalized?.boards["James Drake"]?.mainboard.reduce((sum, card) => sum + card.count, 0), 60);
+  assert.deepEqual(
+    normalized?.event.matches.map((match) => match.player2),
+    ["Abe Schnake", "Abe Schnake"],
+  );
+  assert.equal(normalized?.event.matches.some((match) => match.player1 === "Stefan Schütz"), false);
+});
+
+test("a format label still overrides the schedule, and a missing schedule does not invent Pro Tour rounds", () => {
+  const item = {
+    Tournament: { Name: "Pro Tour Sample", Date: "2026-05-01T16:00:00.000Z", Formats: "Standard", Schedule: WORLDS_SHEET },
+    Decks: [{ Player: "Ada", Result: "1st Place", Mainboard: copies("Island", 60), Sideboard: [] }],
+    Rounds: [
+      { RoundName: "Round 8", Format: "Standard", Matches: [{ Player1: "Ada", Player2: "Bea", Result: "2-0-0" }] },
+      { RoundName: "Round 11", Matches: [{ Player1: "Ada", Player2: "Cy", Result: "2-1-0" }] },
+    ],
+  };
+  const kept = selectConstructedCache(item);
+  assert.deepEqual(kept.rounds.map((round) => round.RoundName), ["Round 8", "Round 11"]);
+  const unnamed = selectConstructedCache({ ...item, Tournament: { ...item.Tournament, Schedule: null }, Rounds: [
+    { RoundName: "Round 8", Matches: [{ Player1: "Ada", Player2: "Bea", Result: "2-0-0" }] },
+    { RoundName: "Round 9", Matches: [{ Player1: "Ada", Player2: "Cy", Result: "2-0-0" }] },
+  ]});
+  assert.deepEqual(unnamed.rounds.map((round) => round.RoundName), ["Round 8", "Round 9"]);
+});
+
+test("premier schedule lookup reads this event's fact sheet and does not use another event", async () => {
+  const lookup = createPremierDraftLookup(async (url) => {
+    if (url === "https://magic.gg/decklists") {
+      return `<a href="/decklists/magic-world-championship-32-standard-decklists-a-l">Magic World Championship 32</a>
+        <a href="/decklists/pro-tour-edge-of-eternities-decklists">Pro Tour Edge of Eternities</a>`;
+    }
+    if (url.endsWith("magic-world-championship-32-standard-decklists-a-l")) {
+      return `<a href="/events/magic-world-championship-32">event</a>`;
+    }
+    if (url.endsWith("/events/magic-world-championship-32")) {
+      return `<a href="/news/world-championship-32-fact-sheet-for-competitors">sheet</a>`;
+    }
+    if (url.endsWith("world-championship-32-fact-sheet-for-competitors")) return WORLDS_SHEET;
+    if (url.endsWith("pro-tour-edge-of-eternities-decklists")) {
+      return `<a href="/news/pro-tour-edge-of-eternities-fact-sheet">sheet</a>`;
+    }
+    if (url.endsWith("pro-tour-edge-of-eternities-fact-sheet")) {
+      return "Three (3) rounds of Booster Draft, followed by five (5) rounds of Modern Constructed";
+    }
+    return null;
+  });
+  const worlds = await lookup("World Championship 32 in Atlanta, USA");
+  assert.deepEqual([...(worlds ?? [])].sort((a, b) => a - b), [1, 2, 3, 8, 9, 10]);
+  const other = await lookup("Pro Tour Edge of Eternities");
+  assert.equal(other?.has(8), false);
+  assert.equal(other?.has(1), true);
+  assert.equal(await lookup("Friday Night Standard"), null);
+});
+
 test("premier misses are recorded for the ingest summary and not described as a site banner", () => {
   const backfill = fs.readFileSync("scripts/backfill.ts", "utf8");
   assert.match(backfill, /importPremierEvents/);
   assert.match(backfill, /Premier misses/);
   assert.match(backfill, /Premier unattempted/);
+  assert.match(backfill, /Dropped short lists/);
+  assert.match(backfill, /Unmatched names/);
+  assert.match(backfill, /PREMIER_LOOKBACK_DAYS/);
+  assert.match(backfill, /shortListStatus/);
+  assert.doesNotMatch(backfill, /coverage\.dropped|droppedLists:/);
   const app = fs.readFileSync("src/app/magic/page.tsx", "utf8");
   assert.doesNotMatch(app, /premier/i);
+  assert.doesNotMatch(app, /short-list|under 60|unmatched-name/);
+  const layout = fs.readFileSync("src/app/magic/layout.tsx", "utf8");
+  assert.doesNotMatch(layout, /short-list|under 60|droppedLists|unmatched-name/);
+  const coverage = fs.readFileSync("src/lib/facts/types.ts", "utf8");
+  assert.doesNotMatch(coverage, /droppedLists|short-list/);
   assert.equal(premierKey("World Championship 32 in Atlanta, USA"), "worlds:32");
   assert.equal(premierKey("https://magic.gg/decklists/magic-world-championship-32-standard-decklists-a-l"), "worlds:32");
 });
