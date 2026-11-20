@@ -446,3 +446,185 @@ test("scraped MTGO lists link to the event page, not the challenges index in the
   assert.equal(item.Decks[0]?.AnchorUri, `${mtgoEventUrl(slug)}#deck_gazmon48`);
   assert.equal(item.Decks[0]?.AnchorUri?.includes("premier-play"), false);
 });
+
+test("a listing with no decklist links is retried before it is structural", async () => {
+  const today = "2026-11-20";
+  const now = Date.parse(`${today}T12:00:00Z`);
+  const recent = `modern-league-${today}11337`;
+  const shell = "<html><title>Decklists</title><img src=\"/images/loading.gif\"></html>";
+  const eventHtml = page({
+    description: "Modern League",
+    starttime: `${today} 00:00:00`,
+    decklists: [{ player: "Ada", loginid: "1", main_deck: [{ qty: "4", card_attributes: { card_name: "Lightning Bolt" } }] }],
+  });
+  const lines: string[] = [];
+  const pauses: number[] = [];
+  let indexCalls = 0;
+  const recovered = await importMtgo({
+    days: 4,
+    today,
+    now: () => now,
+    log: (line) => lines.push(line),
+    sleep: async (ms) => {
+      pauses.push(ms);
+    },
+    onItem: () => {},
+    fetchPage: async (url): Promise<MtgoPageFetch> => {
+      if (url.endsWith("/decklists")) {
+        indexCalls++;
+        if (indexCalls === 1) return { kind: "ok", status: 200, html: shell };
+        return { kind: "ok", status: 200, html: indexHtml([recent]) };
+      }
+      return { kind: "ok", status: 200, html: eventHtml };
+    },
+  });
+  assert.equal(indexCalls, 2);
+  assert.deepEqual(pauses, [700, 60]);
+  assert.equal(recovered.structuralFailure, false);
+  assert.equal(recovered.indexOk, true);
+  assert.equal(recovered.events, 1);
+  assert.equal(assessMtgoImport(recovered).mtgo, "ok");
+  assert.ok(lines.some((line) => line.includes("attempt 1 failed") && line.includes("200 with no decklist links") && line.includes("retrying")));
+  assert.equal(lines.some((line) => line.includes("the index markup changed")), false);
+
+  const heldLines: string[] = [];
+  const heldPauses: number[] = [];
+  let heldCalls = 0;
+  const held = await importMtgo({
+    days: 4,
+    today,
+    now: () => now,
+    log: (line) => heldLines.push(line),
+    sleep: async (ms) => {
+      heldPauses.push(ms);
+    },
+    fetchPage: async () => {
+      heldCalls++;
+      return { kind: "ok", status: 200, html: shell };
+    },
+  });
+  assert.equal(heldCalls, 3);
+  assert.deepEqual(heldPauses, [700, 1400]);
+  assert.equal(held.indexOk, false);
+  assert.equal(held.structuralFailure, true);
+  assert.ok(heldLines.some((line) => line.includes("attempt 1 failed") && line.includes("200 with no decklist links")));
+  assert.ok(heldLines.some((line) => line.includes("attempt 2 failed") && line.includes("retrying")));
+  assert.ok(heldLines.some((line) => line.includes("returned 200 but no decklist links — the index markup changed")));
+  const assessed = assessMtgoImport(held);
+  assert.equal(assessed.mtgo, "unavailable");
+  assert.equal(assessed.mtgoMisses, undefined);
+  assert.equal(assessed.diagnosticMisses.some((miss) => miss.reason === "listing-stale"), false);
+  assert.equal(decidePublish({ discovered: 4, failed: 0, mtgo: assessed.mtgo, allowIncompleteMtgo: false }).publish, false);
+
+  let healthy = 0;
+  await importMtgo({
+    days: 4,
+    today,
+    now: () => now,
+    sleep: async () => {},
+    onItem: () => {},
+    fetchPage: async (url): Promise<MtgoPageFetch> => {
+      if (url.endsWith("/decklists")) {
+        healthy++;
+        return { kind: "ok", status: 200, html: indexHtml([recent]) };
+      }
+      return { kind: "ok", status: 200, html: eventHtml };
+    },
+  });
+  assert.equal(healthy, 1);
+});
+
+test("a listing with no recent tracked events is retried, then recorded as listing-stale", async () => {
+  const today = "2026-11-20";
+  const now = Date.parse(`${today}T12:00:00Z`);
+  const recent = `modern-league-${today}11337`;
+  const staleHtml = indexHtml([`modern-league-2026-11-0111337`, `premodern-league-${today}11377`]);
+  const eventHtml = page({
+    description: "Modern League",
+    starttime: `${today} 00:00:00`,
+    decklists: [{ player: "Ada", loginid: "1", main_deck: [{ qty: "1", card_attributes: { card_name: "Island" } }] }],
+  });
+  const pauses: number[] = [];
+  let indexCalls = 0;
+  const recovered = await importMtgo({
+    days: 4,
+    today,
+    now: () => now,
+    sleep: async (ms) => {
+      pauses.push(ms);
+    },
+    onItem: () => {},
+    fetchPage: async (url): Promise<MtgoPageFetch> => {
+      if (url.endsWith("/decklists")) {
+        indexCalls++;
+        if (indexCalls < 3) return { kind: "ok", status: 200, html: staleHtml };
+        return { kind: "ok", status: 200, html: indexHtml([recent]) };
+      }
+      return { kind: "ok", status: 200, html: eventHtml };
+    },
+  });
+  assert.equal(indexCalls, 3);
+  assert.deepEqual(pauses, [700, 1400, 60]);
+  assert.equal(recovered.found, 1);
+  assert.equal(recovered.events, 1);
+  assert.equal(recovered.structuralFailure, false);
+  assert.equal(assessMtgoImport(recovered).mtgo, "ok");
+
+  const lines: string[] = [];
+  const stalePauses: number[] = [];
+  let staleCalls = 0;
+  const fetchedEvents: string[] = [];
+  const stale = await importMtgo({
+    days: 4,
+    today,
+    now: () => now,
+    log: (line) => lines.push(line),
+    sleep: async (ms) => {
+      stalePauses.push(ms);
+    },
+    onItem: () => {},
+    fetchPage: async (url): Promise<MtgoPageFetch> => {
+      if (url.endsWith("/decklists")) {
+        staleCalls++;
+        return { kind: "ok", status: 200, html: staleHtml };
+      }
+      fetchedEvents.push(url);
+      return { kind: "ok", status: 200, html: eventHtml };
+    },
+  });
+  assert.equal(staleCalls, 3);
+  assert.deepEqual(fetchedEvents, []);
+  assert.deepEqual(stalePauses, [700, 1400]);
+  assert.equal(stale.indexOk, true);
+  assert.equal(stale.found, 0);
+  assert.equal(stale.indexLinks, 2);
+  assert.equal(stale.events, 0);
+  assert.equal(stale.errors, 0);
+  assert.equal(stale.structuralFailure, false);
+  assert.ok(lines.some((line) => line.includes("attempt 1 failed") && line.includes("0 recent events in tracked formats") && line.includes("retrying")));
+  assert.ok(lines.some((line) => line.includes("attempt 2 failed") && line.includes("retrying")));
+  assert.ok(lines.some((line) => line.includes("0 recent events in tracked formats; 0 already stored with lists, 0 to fetch")));
+  assert.ok(lines.some((line) => line.includes("had 0 recent events in tracked formats (2 decklist links)")));
+  const assessed = assessMtgoImport(stale);
+  assert.equal(assessed.mtgo, "partial");
+  assert.equal(assessed.mtgoMissed, 1);
+  assert.equal(assessed.mtgoUnattempted, 0);
+  assert.deepEqual(assessed.mtgoMisses, [
+    { slug: "listing", url: "https://www.mtgo.com/decklists", reason: "listing-stale" },
+  ]);
+  assert.deepEqual(assessed.diagnosticMisses, [
+    { ref: "https://www.mtgo.com/decklists", reason: "listing-stale", detail: "2 decklist links" },
+  ]);
+  const summary = renderIngestDiagnostic({
+    game: "Magic",
+    status: `Publish allowed. cache complete. MTGO ${assessed.mtgo}.`,
+    sections: [{ title: "Missed events", events: assessed.diagnosticMisses }],
+  });
+  assert.match(summary, /MTGO partial\./);
+  assert.match(summary, /Count: 1 \(listing-stale 1\)/);
+  assert.match(summary, /https:\/\/www\.mtgo\.com\/decklists — listing-stale \(2 decklist links\)/);
+  assert.equal(decidePublish({ discovered: 4, failed: 0, mtgo: assessed.mtgo, allowIncompleteMtgo: false }).publish, true);
+  const magic = fs.readFileSync("src/app/magic/page.tsx", "utf8");
+  assert.doesNotMatch(magic, /listing-stale/);
+  assert.doesNotMatch(magic, /mtgoMisses/);
+});
