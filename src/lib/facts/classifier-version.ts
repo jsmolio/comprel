@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
+import { activeRulesRoot, syncedRulesRoot } from "../formatdata";
 
 const INPUTS = [
   path.join("src", "lib", "archetype", "classify.ts"),
@@ -38,5 +39,8 @@ export function classifierVersion(root = process.cwd()): string {
     if (st.isDirectory()) walk(hash, full, root);
     else addFile(hash, full, root);
   }
+  // Only the tree the loader is using. A download that did not commit its marker stays out of the hash.
+  const synced = syncedRulesRoot(root);
+  if (activeRulesRoot(root) === synced) walk(hash, synced, root);
   return hash.digest("hex").slice(0, 16);
 }

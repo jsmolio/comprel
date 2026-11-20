@@ -1,5 +1,13 @@
 // Refetch source files and reclassify events whose classifierVersion is stale.
-// A failed fetch keeps the stored archetype. Empty local boards are never classified.
+// Writes data/facts/v1 event files and republishes data/published/magic. It does
+// not open Postgres, read secrets, or change the scheduled workflow.
+//
+//   pnpm reclassify-facts
+//
+// The scheduled ingest reclassifies lists that are already stored when upstream
+// rules change. This command is the full pass for every other list: it refetches
+// sourcePath from the public decklist cache. A failed fetch keeps the stored
+// archetype. Empty local boards are never classified.
 
 try {
   (process as unknown as { loadEnvFile?: (p?: string) => void }).loadEnvFile?.(".env");
