@@ -9,34 +9,73 @@ export interface Classification {
   colorName: string; // e.g. "Izzet"
 }
 
+/** Condition types the classifier implements. Matching is case-insensitive. */
+export const CONDITION_TYPES = [
+  "InMainboard",
+  "InSideboard",
+  "InMainOrSideboard",
+  "OneOrMoreInMainboard",
+  "OneOrMoreInSideboard",
+  "OneOrMoreInMainOrSideboard",
+  "TwoOrMoreInMainboard",
+  "TwoOrMoreInSideboard",
+  "TwoOrMoreInMainOrSideboard",
+  "DoesNotContain",
+  "DoesNotContainMainboard",
+  "DoesNotContainSideboard",
+] as const;
+
+const CONDITION_TYPE_SET = new Set<string>(CONDITION_TYPES.map((type) => type.toLowerCase()));
+
+export function knownConditionType(type: string): boolean {
+  return CONDITION_TYPE_SET.has(type.trim().toLowerCase());
+}
+
+/** Condition types in a parsed rule file that this classifier would ignore. */
+export function unknownConditionTypes(value: unknown, found: string[] = []): string[] {
+  if (!value || typeof value !== "object") return found;
+  if (Array.isArray(value)) {
+    for (const item of value) unknownConditionTypes(item, found);
+    return found;
+  }
+  const obj = value as Record<string, unknown>;
+  if (typeof obj.Type === "string" && "Cards" in obj && !knownConditionType(obj.Type)) found.push(obj.Type);
+  for (const nested of Object.values(obj)) unknownConditionTypes(nested, found);
+  return found;
+}
+
+export function conditionMatches(type: string, cards: string[], mainNames: readonly string[], sideNames: readonly string[] = []): boolean {
+  return evalCondition(type, cards, new Set(mainNames), new Set(sideNames));
+}
+
 function evalCondition(type: string, cards: string[], main: Set<string>, side: Set<string>): boolean {
   const inMain = (c: string) => main.has(c);
   const inSide = (c: string) => side.has(c);
   const inEither = (c: string) => main.has(c) || side.has(c);
-  switch (type) {
-    case "InMainboard":
+  switch (type.trim().toLowerCase()) {
+    case "inmainboard":
       return cards.every(inMain);
-    case "InSideboard":
+    case "insideboard":
       return cards.every(inSide);
-    case "InMainOrSideboard":
+    case "inmainorsideboard":
       return cards.every(inEither);
-    case "OneOrMoreInMainboard":
+    case "oneormoreinmainboard":
       return cards.some(inMain);
-    case "OneOrMoreInSideboard":
+    case "oneormoreinsideboard":
       return cards.some(inSide);
-    case "OneOrMoreInMainOrSideboard":
+    case "oneormoreinmainorsideboard":
       return cards.some(inEither);
-    case "TwoOrMoreInMainboard":
+    case "twoormoreinmainboard":
       return cards.filter(inMain).length >= 2;
-    case "TwoOrMoreInSideboard":
+    case "twoormoreinsideboard":
       return cards.filter(inSide).length >= 2;
-    case "TwoOrMoreInMainOrSideboard":
+    case "twoormoreinmainorsideboard":
       return cards.filter(inEither).length >= 2;
-    case "DoesNotContain":
+    case "doesnotcontain":
       return !cards.some(inEither);
-    case "DoesNotContainMainboard":
+    case "doesnotcontainmainboard":
       return !cards.some(inMain);
-    case "DoesNotContainSideboard":
+    case "doesnotcontainsideboard":
       return !cards.some(inSide);
     default:
       return false; // unknown condition type -> treat as unmet
@@ -57,8 +96,8 @@ function conditionsMet(
  *   2. the fallback bucket sharing the most signature cards, else
  *   3. an "Unknown" bucket, still labeled by derived color identity.
  */
-export function classify(format: string, mainboard: BoardCard[], sideboard: BoardCard[]): Classification {
-  const data = loadFormatData(format);
+export function classify(format: string, mainboard: BoardCard[], sideboard: BoardCard[], root = process.cwd()): Classification {
+  const data = loadFormatData(format, root);
   const main = new Set(mainboard.map((c) => c.name));
   const side = new Set(sideboard.map((c) => c.name));
   const colorId = deckColors(mainboard, data.colorLookup);

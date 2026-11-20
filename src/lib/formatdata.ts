@@ -5,11 +5,17 @@ import path from "node:path";
 // curated card->color map) vendored under data/mtgoformatdata/Formats.
 // Licensed MIT by Badaro/Jiliac: https://github.com/Badaro/MTGOFormatData
 
-const ROOT = path.join(process.cwd(), "data", "mtgoformatdata", "Formats");
-// Our local rule customizations, layered on top of the vendored rules so a
-// refresh of data/mtgoformatdata can never clobber them. Mirror structure:
+const VENDORED_DIR = ["data", "mtgoformatdata"];
+// Rules ingested from upstream live here so the scheduled publish, which commits
+// data/facts, keeps them. Local overrides still win over this tree.
+const SYNCED_DIR = ["data", "facts", "v1", "upstream-rules"];
+const MARKER_FILE = ["data", "facts", "v1", "rules-sync.json"];
+// Our local rule customizations, layered on top of the vendored or synced rules
+// so an upstream refresh can never clobber them. Mirror structure:
 // data/rule-overrides/<FormatFolder>/Archetypes/<File>.json
-const OVERRIDE_ROOT = path.join(process.cwd(), "data", "rule-overrides");
+function overrideRoot(root: string): string {
+  return path.join(root, "data", "rule-overrides");
+}
 
 export interface ArchetypeCond {
   Type: string;
@@ -54,8 +60,39 @@ const FOLDER: Record<string, string> = {
 
 // The rule files are authored for Newtonsoft, which tolerates trailing commas;
 // strip them so the stricter JSON.parse accepts the files.
-function parseLenient<T>(raw: string): T {
+export function parseLenientJson<T = unknown>(raw: string): T {
   return JSON.parse(raw.replace(/,(\s*[}\]])/g, "$1")) as T;
+}
+
+function parseLenient<T>(raw: string): T {
+  return parseLenientJson<T>(raw);
+}
+
+export function syncedRulesRoot(root = process.cwd()): string {
+  return path.join(root, ...SYNCED_DIR);
+}
+
+export function rulesMarkerPath(root = process.cwd()): string {
+  return path.join(root, ...MARKER_FILE);
+}
+
+/** Vendored rules, or the last successful upstream sync when that marker is current. */
+export function activeRulesRoot(root = process.cwd()): string {
+  const vendored = path.join(root, ...VENDORED_DIR);
+  const synced = syncedRulesRoot(root);
+  const markerFile = rulesMarkerPath(root);
+  try {
+    if (!fs.existsSync(markerFile) || !fs.existsSync(path.join(synced, "Formats", "card_colors.json"))) return vendored;
+    const parsed = JSON.parse(fs.readFileSync(markerFile, "utf8")) as { appliedSha?: unknown; source?: unknown };
+    if (parsed.source === "synced" && typeof parsed.appliedSha === "string" && parsed.appliedSha.length > 0) return synced;
+  } catch {
+    /* A broken marker keeps the vendored copy. */
+  }
+  return vendored;
+}
+
+export function formatFolders(): string[] {
+  return Object.keys(FOLDER);
 }
 
 function readJson<T>(file: string): T {
@@ -81,42 +118,49 @@ function readArchetypeMap(dir: string): Map<string, ArchetypeDef> {
   return m;
 }
 
-let globalColors: Map<string, string> | null = null;
-function loadGlobalColors(): Map<string, string> {
-  if (globalColors) return globalColors;
+const colorCache = new Map<string, Map<string, string>>();
+function loadGlobalColors(rulesRoot: string): Map<string, string> {
+  const file = path.join(rulesRoot, "Formats", "card_colors.json");
+  const cached = colorCache.get(file);
+  if (cached) return cached;
   const m = new Map<string, string>();
-  const raw = readJson<{ Lands?: { Name: string; Color: string }[]; NonLands?: { Name: string; Color: string }[] }>(
-    path.join(ROOT, "card_colors.json"),
-  );
+  const raw = readJson<{ Lands?: { Name: string; Color: string }[]; NonLands?: { Name: string; Color: string }[] }>(file);
   for (const e of raw.Lands ?? []) m.set(e.Name, e.Color ?? "");
   for (const e of raw.NonLands ?? []) m.set(e.Name, e.Color ?? "");
-  globalColors = m;
+  colorCache.set(file, m);
   return m;
 }
 
 const cache = new Map<string, FormatData>();
 
-export function hasFormatData(format: string): boolean {
-  return format in FOLDER && fs.existsSync(path.join(ROOT, FOLDER[format]));
+export function clearFormatDataCache(): void {
+  cache.clear();
+  colorCache.clear();
 }
 
-export function loadFormatData(format: string): FormatData {
-  const cached = cache.get(format);
+export function hasFormatData(format: string, root = process.cwd()): boolean {
+  return format in FOLDER && fs.existsSync(path.join(activeRulesRoot(root), "Formats", FOLDER[format]));
+}
+
+export function loadFormatData(format: string, root = process.cwd()): FormatData {
+  const rulesRoot = activeRulesRoot(root);
+  const cacheKey = `${rulesRoot}\0${format}`;
+  const cached = cache.get(cacheKey);
   if (cached) return cached;
 
   const folder = FOLDER[format];
   if (!folder) throw new Error(`No rule data for format "${format}"`);
-  const dir = path.join(ROOT, folder);
+  const dir = path.join(rulesRoot, "Formats", folder);
 
   const archMap = readArchetypeMap(path.join(dir, "Archetypes"));
-  for (const [file, def] of readArchetypeMap(path.join(OVERRIDE_ROOT, folder, "Archetypes"))) {
+  for (const [file, def] of readArchetypeMap(path.join(overrideRoot(root), folder, "Archetypes"))) {
     archMap.set(file, def); // local override replaces / adds
   }
   const archetypes = [...archMap.values()];
   const fallbacks = readJsonDir<FallbackDef>(path.join(dir, "Fallbacks"));
 
   // Per-format color overrides layered on top of the global map.
-  const colors = new Map(loadGlobalColors());
+  const colors = new Map(loadGlobalColors(rulesRoot));
   const ovPath = path.join(dir, "color_overrides.json");
   if (fs.existsSync(ovPath)) {
     const ov = readJson<{ Lands?: { Name: string; Color: string }[] | null; NonLands?: { Name: string; Color: string }[] | null }>(ovPath);
@@ -125,6 +169,6 @@ export function loadFormatData(format: string): FormatData {
   }
 
   const data: FormatData = { archetypes, fallbacks, colorLookup: (n) => colors.get(n) };
-  cache.set(format, data);
+  cache.set(cacheKey, data);
   return data;
 }

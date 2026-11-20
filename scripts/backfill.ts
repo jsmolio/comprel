@@ -12,6 +12,7 @@ try {
 import fs from "node:fs";
 import path from "node:path";
 import { boardUseful, mergeStoredLists, preserveArchetypes } from "../src/lib/facts/boards";
+import { rulesSyncEvents, syncUpstreamRules } from "../src/lib/archetype/rules-sync";
 import { classifierVersion } from "../src/lib/facts/classifier-version";
 import { buildSnapshotBody } from "../src/lib/facts/compute";
 import { syncBansToExtras } from "../src/lib/facts/bans";
@@ -154,7 +155,6 @@ async function main() {
   // `--out`, not `--dir`: pnpm treats `--dir` as its own workspace option.
   const root = flag("out") || process.cwd();
   const store = new FactStore(root);
-  const version = classifierVersion();
   const allow = new Set<Format>(FORMATS);
   const log = (message: string) => console.log(message);
 
@@ -167,7 +167,6 @@ async function main() {
     if (report.misses.length) log(`  misses: ${report.misses.map((miss) => `${miss.reason} ${miss.ref}`).join("; ")}`);
     return 0;
   }
-  const done = loadDone(store, version);
   const failed: string[] = [];
   let emptyFiles = 0;
   const shortLists: { ref: string; dropped: number }[] = [];
@@ -188,6 +187,10 @@ async function main() {
   };
 
   const code = await withPublishLock(store, async () => {
+    log("→ Checking MTGOFormatData rules…");
+    const rulesSync = await syncUpstreamRules({ root, log });
+    const version = classifierVersion();
+    const done = loadDone(store, version);
     log(`→ Discovering ${days} cache day(s) across ${yearsToScan} year(s)…`);
     const files = await discoverRecentCacheFiles(days, yearsToScan);
     const span = folderSpan(files);
@@ -354,6 +357,10 @@ async function main() {
             {
               title: "Unmatched names",
               events: unmatchedNames,
+            },
+            {
+              title: "Rules sync",
+              events: rulesSyncEvents(rulesSync),
             },
           ],
         },

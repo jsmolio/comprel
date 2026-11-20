@@ -7,8 +7,8 @@
       "Cards": ["Momo, Friendly Flier"]
     },
     {
-      "Type": "OneOrMoreInMainboard",
-      "Cards": ["Haliya, Guided by Light", "Abandoned Air Temple"]
+      "Type": "OneorMoreInMainboard",
+      "Cards": ["Haliya, Guided by Light", "Abandoned Air Temple", "Starfield Shepherd"]
     },
     {
       "Type": "DoesNotContain",
