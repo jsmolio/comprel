@@ -1,0 +1,14 @@
+{
+  "Name": "EnduringIdeal",
+  "IncludeColorInName": false,
+  "Conditions": [
+    {
+      "Type": "InMainboard",
+      "Cards": ["Enduring Ideal"]
+    },
+    {
+      "Type": "InMainboard",
+      "Cards": ["Lotus Bloom"]
+    }
+  ]
+}

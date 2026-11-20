@@ -1,0 +1,14 @@
+{
+  "Name": "Auras",
+  "IncludeColorInName": true,
+  "Conditions": [
+    {
+      "Type": "OneOrMoreInMainboard",
+      "Cards": ["Light-Paws, Emperor's Voice","Gladecover Scout"]
+    },
+    {
+      "Type": "OneOrMoreInMainboard",
+      "Cards": ["All That Glitters","Ethereal Armor"]
+    }
+  ]
+}

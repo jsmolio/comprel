@@ -1,0 +1,14 @@
+{
+    "Name": "Mono Green Devotion",
+    "IncludeColorInName": false,
+    "Conditions": [
+      {
+        "Type": "InMainboard",
+        "Cards": ["Nykthos, Shrine to Nyx"]
+      },
+      {
+        "Type": "OneOrMoreInMainboard",
+        "Cards": ["Oath of Nissa", "Old-Growth Troll"]
+      }
+    ]
+  }

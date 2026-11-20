@@ -1,0 +1,116 @@
+{
+  "Name": "Show and Tell",
+  "IncludeColorInName": false,
+  "Conditions": [
+    {
+      "Type": "InMainboard",
+      "Cards": [
+        "Show and Tell"
+      ]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": [
+        "Doomsday"
+      ]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": [
+        "Aluren"
+      ]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": [
+        "Reanimate"
+      ]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": [
+        "Manifold Key"
+      ]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": [
+        "Coveted Jewel"
+      ]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": [
+        "Hive Mind"
+      ]
+    }
+  ],
+  "Variants": [
+    {
+      "Name": "Sneak and Show",
+      "IncludeColorInName": false,
+      "Conditions": [
+        {
+          "Type": "InMainboard",
+          "Cards": [
+            "Sneak Attack"
+          ]
+        }
+      ]
+    },
+    {
+      "Name": "Omni-Tell",
+      "IncludeColorInName": false,
+      "Conditions": [
+        {
+          "Type": "InMainboard",
+          "Cards": [
+            "Omniscience"
+          ]
+        },
+        {
+          "Type": "DoesNotContainMainboard",
+          "Cards": [
+            "Sneak Attack"
+          ]
+        }
+      ]
+    },
+    {
+      "Name": "Hypergenesis",
+      "IncludeColorInName": false,
+      "Conditions": [
+        {
+          "Type": "InMainboard",
+          "Cards": [
+            "Hypergenesis"
+          ]
+        },
+        {
+          "Type": "InMainboard",
+          "Cards": [
+            "Omniscience"
+          ]
+        }
+      ]
+    },
+    {
+      "Name": "Creative technique",
+      "IncludeColorInName": false,
+      "Conditions": [
+        {
+          "Type": "InMainboard",
+          "Cards": [
+            "Creative Technique"
+          ]
+        },
+        {
+          "Type": "InMainboard",
+          "Cards": [
+            "Omniscience"
+          ]
+        }
+      ]
+    }
+  ]
+}

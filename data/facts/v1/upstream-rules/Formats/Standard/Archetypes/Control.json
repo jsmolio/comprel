@@ -1,0 +1,26 @@
+{
+  "Name": "Jeskai Control",
+  "IncludeColorInName": false,
+  "Conditions": [
+    {
+      "Type": "OneOrMoreInMainboard",
+      "Cards": ["Shiko, Paragon of the Way", "Jeskai Revelation"]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": ["Accumulate Wisdom"]
+    }
+  ],
+  "Variants": [
+    {
+      "Name": "4c Control",
+      "IncludeColorInName": false,
+      "Conditions": [
+        {
+          "Type": "InMainboard",
+          "Cards": ["Inevitable Defeat"]
+        }
+      ]
+    }
+  ]
+}

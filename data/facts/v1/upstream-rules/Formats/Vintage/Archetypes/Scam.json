@@ -1,0 +1,22 @@
+{
+    "Name": "Scam",
+    "IncludeColorInName": false,
+    "Conditions": [
+        {
+            "Type": "TwoOrMoreInMainboard",
+            "Cards": ["Grief","Reanimate","Entomb","Troll of Khazad-dûm"]
+        }, 
+        {
+            "Type": "DoesNotContainSideboard",
+            "Cards": ["Lurrus of the Dream-Den"]
+        },
+        {
+            "Type": "DoesNotContain",
+            "Cards": ["Balustrade Spy"]
+        },
+        {
+            "Type": "DoesNotContain",
+            "Cards": ["Tinker"]
+        }
+    ]
+}

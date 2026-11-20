@@ -1,0 +1,36 @@
+{
+  "Name": "Rona Combo",
+  "IncludeColorInName": false,
+  "Conditions": [
+    {
+      "Type": "InMainboard",
+      "Cards": ["Rona, Herald of Invasion"]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": ["Greasefang, Okiba Boss"]
+    }
+  ],
+  "Variants": [
+    {
+      "Name": "Rona Ascendancy",
+      "IncludeColorInName": true,
+      "Conditions": [
+        {
+          "Type": "InMainboard",
+          "Cards": ["Jeskai Ascendancy"]
+        }
+        ]
+    },
+    {
+      "Name": "Acererak Combo",
+      "IncludeColorInName": false,
+      "Conditions": [
+        {
+          "Type": "InMainboard",
+          "Cards": ["Acererak the Archlich"]
+        }
+        ]
+    }
+  ]
+}

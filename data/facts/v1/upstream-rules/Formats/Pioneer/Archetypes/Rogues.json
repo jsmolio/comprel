@@ -1,0 +1,14 @@
+{
+  "Name": "Rogues",
+  "IncludeColorInName": true,
+  "Conditions": [
+    {
+      "Type": "InMainboard",
+      "Cards": ["Soaring Thought-Thief"]
+    },
+    {
+      "Type": "InMainboard",
+      "Cards": ["Thieves' Guild Enforcer"]
+    }
+  ]
+}

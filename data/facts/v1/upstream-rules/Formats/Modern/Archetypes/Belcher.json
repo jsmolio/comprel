@@ -1,0 +1,28 @@
+{
+  "Name": "Belcher",
+  "IncludeColorInName": true,
+  "Conditions": [
+    {
+      "Type": "InMainboard",
+      "Cards": [
+        "Goblin Charbelcher"
+      ]
+    },
+    {
+      "Type": "TwoOrMoreInMainboard",
+      "Cards": ["Irencrag Feat","Chancellor of the Tangle","Desperate Ritual","Pyretic Ritual","Lotus Bloom","Tameshi, Reality Architect", "Whir of Invention"]
+    }
+  ],
+  "Variants": [
+    {
+      "Name": "Blue Belcher",
+      "IncludeColorInName": false,
+      "Conditions": [
+        {
+          "Type": "OneOrMoreInMainboard",
+          "Cards": ["Whir of Invention"]
+        }
+      ]
+    }
+  ]
+}

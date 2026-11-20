@@ -1,0 +1,22 @@
+{
+  "Name": "MartyrControl",
+  "IncludeColorInName": false,
+  "Conditions": [
+    {
+      "Type": "InMainboard",
+      "Cards": ["Martyr of Sands"]
+    },
+    {
+      "Type": "InMainboard",
+      "Cards": ["Emeria, the Sky Ruin"]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": ["Serra Ascendant"]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": ["Walking Ballista"]
+    }
+  ]
+}

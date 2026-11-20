@@ -1,0 +1,26 @@
+{
+  "Name": "Boros Heroic",
+  "IncludeColorInName": false,
+  "Conditions": [
+    {
+      "Type": "InMainboard",
+      "Cards": ["Favored Hoplite"]
+    },
+    {
+      "Type": "InMainboard",
+      "Cards": ["Tenth District Legionnaire"]
+    }
+  ],
+  "Variants": [
+    {
+      "Name": "Feather",
+      "IncludeColorInName": false,
+      "Conditions": [
+        {
+          "Type": "InMainOrSideboard",
+          "Cards": ["Feather, the Redeemed"]
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,22 @@
+{
+  "Name": "Transmogrify",
+  "IncludeColorInName": true,
+  "Conditions": [
+    {
+      "Type": "InMainboard",
+      "Cards": ["Transmogrify"]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": ["Indomitable Creativity"]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": ["Fires of Invention"]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": ["Hopeless Nightmare"]
+    }
+  ]
+}

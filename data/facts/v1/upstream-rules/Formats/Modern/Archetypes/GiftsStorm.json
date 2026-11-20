@@ -1,0 +1,26 @@
+{
+  "Name": "GiftsStorm",
+  "IncludeColorInName": false,
+  "Conditions": [
+    {
+      "Type": "OneOrMoreInMainboard",
+      "Cards": [
+        "Baral, Chief of Compliance",
+        "Goblin Electromancer",
+        "Rowan, Scholar of Sparks"
+      ]
+    },
+    {
+      "Type": "InMainboard",
+      "Cards": ["Grapeshot"]
+    },
+    {
+      "Type": "InMainboard",
+      "Cards": ["Gifts Ungiven"]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": ["Ruby Medallion"]
+    }
+  ]
+}

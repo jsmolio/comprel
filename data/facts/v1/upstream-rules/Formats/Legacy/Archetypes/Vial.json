@@ -1,0 +1,38 @@
+{
+  "Name": "Vial",
+  "IncludeColorInName": true,
+  "Conditions": [
+    {
+      "Type": "DoesNotContainMainboard",
+      "Cards": ["Thalia, Guardian of Thraben"]
+    },
+    {
+      "Type": "DoesNotContainMainboard",
+      "Cards": ["Phelia, Exuberant Shepherd"]
+    },
+    {
+      "Type": "DoesNotContainMainboard",
+      "Cards": ["Stoneforge Mystic"]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": ["Lord of Atlantis"]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": ["Muxus, Goblin Grandee"]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": ["Cephalid Illusionist"]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": ["Nadu, Winged Wisdom"]
+    },
+    {
+      "Type": "InMainboard",
+      "Cards": ["Aether Vial"]
+    }
+  ]
+}

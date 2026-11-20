@@ -1,0 +1,10 @@
+{
+  "Name": "Elves",
+  "IncludeColorInName": true,
+  "Conditions": [
+    {
+      "Type": "InMainboard",
+      "Cards": ["Elvish Warmaster"]
+    }
+  ]
+}

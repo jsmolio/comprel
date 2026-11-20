@@ -1,0 +1,14 @@
+{
+    "Name": "Goblins",
+    "IncludeColorInName": true,
+    "Conditions": [
+        {
+            "Type": "InMainboard",
+            "Cards": ["Goblin Matron"]
+        },
+        {
+            "Type": "DoesNotContain",
+            "Cards": ["Experimental Synthesizer"]
+        }
+    ]
+}

@@ -1,0 +1,14 @@
+{
+  "Name": "Discover Combo",
+  "IncludeColorInName": false,
+  "Conditions": [
+    {
+      "Type": "InMainboard",
+      "Cards": ["Trumpeting Carnosaur"]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": ["Creative Technique"]
+    }
+  ]
+}

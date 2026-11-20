@@ -1,0 +1,24 @@
+{
+  "Name": "Charbelcher",
+  "IncludeColorInName": false,
+  "Conditions": [
+    {
+      "Type": "InMainboard",
+      "Cards": [
+        "Goblin Charbelcher"
+      ]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": [
+        "Balustrade Spy"
+      ]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": [
+        "Basking Rootwalla"
+      ]
+    }
+  ]
+}

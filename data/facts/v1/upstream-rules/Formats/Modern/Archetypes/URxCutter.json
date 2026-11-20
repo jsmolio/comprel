@@ -1,0 +1,22 @@
+{
+  "Name": "Cutter",
+  "IncludeColorInName": true,
+  "Conditions": [
+    {
+      "Type": "InMainboard",
+      "Cards": ["Cori-Steel Cutter"]
+    },
+    {
+      "Type": "OneOrMoreInMainboard",
+      "Cards": ["Fatestitcher","Emry, Lurker of the Loch","Retraction Helix"]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": ["Song of Creation"]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": ["Urza, Lord High Artificer"]
+    }
+  ]
+}

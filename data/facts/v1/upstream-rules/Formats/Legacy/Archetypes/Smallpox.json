@@ -1,0 +1,26 @@
+{
+  "Name": "Smallpox",
+  "IncludeColorInName": false,
+  "Conditions": [
+    {
+      "Type": "InMainboard",
+      "Cards": [
+        "Smallpox"
+      ]
+    }
+  ],
+  "Variants": [
+    {
+      "Name": "Loam Pox",
+      "IncludeColorInName": false,
+      "Conditions": [
+        {
+          "Type": "InMainboard",
+          "Cards": [
+            "Life from the Loam"
+          ]
+        }
+      ]
+    }
+  ]
+}

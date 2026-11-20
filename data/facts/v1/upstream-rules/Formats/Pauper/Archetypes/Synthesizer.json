@@ -1,0 +1,18 @@
+{
+  "Name": "Synthesizer",
+  "IncludeColorInName": true,
+  "Conditions": [
+    {
+      "Type": "InMainboard",
+      "Cards": ["Experimental Synthesizer"]  
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": ["Goblin Tomb Raider"]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": ["Basilisk Gate"]
+    }
+  ]
+}

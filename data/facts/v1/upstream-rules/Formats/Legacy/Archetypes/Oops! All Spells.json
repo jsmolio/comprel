@@ -1,0 +1,18 @@
+{
+  "Name": "Oops! All Spells",
+  "IncludeColorInName": false,
+  "Conditions": [
+    {
+      "Type": "InMainboard",
+      "Cards": [
+        "Balustrade Spy"
+      ]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": [
+        "Golgari Grave-Troll"
+      ]
+    }
+  ]
+}

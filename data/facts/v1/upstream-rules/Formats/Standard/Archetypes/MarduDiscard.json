@@ -1,0 +1,18 @@
+{
+  "Name": "Discard",
+  "IncludeColorInName": true,
+  "Conditions": [
+    {
+      "Type": "OneOrMoreInMainboard",
+      "Cards": ["Tersa Lightshatter", "Bloodghast"]
+    },
+    {
+      "Type": "OneOrMoreInMainboard",
+      "Cards": ["Practiced Offense", "Darklight Phoenix"]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": ["Abhorrent Oculus"]
+    }
+  ]
+}

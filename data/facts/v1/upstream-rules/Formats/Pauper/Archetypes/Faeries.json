@@ -1,0 +1,18 @@
+{
+  "Name": "Faeries",
+  "IncludeColorInName": true,
+  "Conditions": [
+    {
+      "Type": "InMainboard",
+      "Cards": ["Spellstutter Sprite"]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": ["Priest of Titania"]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": ["Persistent Petitioners"]
+    }
+  ]
+}

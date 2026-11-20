@@ -1,0 +1,26 @@
+{
+  "Name": "Blink",
+  "IncludeColorInName": true,
+  "Conditions": [
+    {
+      "Type": "InMainboard",
+      "Cards": ["Overlord of the Balemurk"]
+    },
+    {
+      "Type": "OneOrMoreInMainboard",
+      "Cards": ["Ephemerate", "Phelia, Exuberant Shepherd", "Flickerwisp"]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": ["Birthing Ritual"]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": ["Ajani, Nacatl Pariah"]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": ["Scion of Draco"]
+    }
+  ]
+}

@@ -1,0 +1,11 @@
+{
+  "Name": "Lutri",
+  "IncludeColorInName": true,
+  "Conditions": [
+    {
+      "Type": "InSideboard",
+      "Cards": ["Lutri, the Spellchaser"]
+    }
+
+  ]
+}

@@ -1,0 +1,14 @@
+{
+  "Name": "Neobrand",
+  "IncludeColorInName": false,
+  "Conditions": [
+    {
+      "Type": "InMainboard",
+      "Cards": ["Allosaurus Rider"]
+    },
+    {
+      "Type": "InMainboard",
+      "Cards": ["Neoform"]
+    }
+  ]
+}

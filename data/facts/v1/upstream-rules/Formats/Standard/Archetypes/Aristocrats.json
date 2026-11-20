@@ -1,0 +1,18 @@
+{
+  "Name": "Aristocrats",
+  "IncludeColorInName": true,
+  "Conditions": [
+    {
+      "Type": "InMainboard",
+      "Cards": [
+        "Infestation Sage"
+      ]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": [
+        "Kaito, Bane of Nightmares"
+      ]
+    }
+  ]
+}

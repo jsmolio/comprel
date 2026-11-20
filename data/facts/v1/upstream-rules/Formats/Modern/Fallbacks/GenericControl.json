@@ -1,0 +1,25 @@
+{
+  "Name": "GenericControl",
+  "IncludeColorInName": true,
+  "CommonCards": [
+    "Cryptic Command",
+    "Mana Leak",
+    "Force of Negation",
+    "Creeping Tar Pit",
+    "Celestial Colonnade",
+    "Terminus",
+    "Dead of Winter",
+    "Ral, Izzet Viceroy",
+    "Shark Typhoon",
+    "Jace, Vryn's Prodigy",
+    "Time Warp",
+    "Teferi, Hero of Dominaria",
+    "Supreme Verdict",
+    "Archmage's Charm",
+    "Drown in the Loch",
+    "Teferi, Time Raveler",
+    "Jace, the Mind Sculptor",
+    "Snapcaster Mage",
+    "Counterspell"
+  ]
+}

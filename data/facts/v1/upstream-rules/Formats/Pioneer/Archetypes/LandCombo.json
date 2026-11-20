@@ -1,0 +1,30 @@
+{
+  "Name": "Land Combo",
+  "IncludeColorInName": false,
+  "Conditions": [
+    {
+      "Type": "OneOrMoreInMainboard",
+      "Cards": ["Aftermath Analyst", "Nissa, Resurgent Animist"]
+    },
+    {
+      "Type": "OneOrMoreInMainboard",
+      "Cards": ["Lotus Cobra", "Spelunking"]
+    },
+    {
+      "Type": "DoesNotContainMainboard",
+      "Cards": ["Titan of Industry"]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": ["Virtue of Persistence"]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": ["Spyglass Siren"]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": ["Lotus Field"]
+    }
+  ]
+}

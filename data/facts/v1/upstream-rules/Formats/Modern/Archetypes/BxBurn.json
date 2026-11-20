@@ -1,0 +1,18 @@
+{
+  "Name": "Burn",
+  "IncludeColorInName": true,
+  "Conditions": [
+    {
+      "Type": "InMainboard",
+      "Cards": ["Chancellor of the Dross"]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": ["Necrodominance"]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": ["Cosmogoyf"]
+    }
+  ]
+}

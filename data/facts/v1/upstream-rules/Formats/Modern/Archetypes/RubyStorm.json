@@ -1,0 +1,19 @@
+{
+  "Name": "RubyStorm",
+  "IncludeColorInName": false,
+  "Conditions": [
+    {
+      "Type": "InMainboard",
+      "Cards": [
+        "Ral, Monsoon Mage"
+      ]
+    },
+    {
+      "Type": "OneOrMoreInMainboard",
+      "Cards": [
+        "Ruby Medallion",
+        "Stormcatch Mentor"
+      ]
+    }
+  ]
+}

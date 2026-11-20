@@ -1,0 +1,16 @@
+{
+  "Name": "Other Shops",
+  "IncludeColorInName": false,
+  "CommonCards": [
+	"Mishra's Workshop",
+  "Patchwork Automaton",
+  "Phyrexian Metamorph",
+  "Lodestone Golem",
+  "Mox Opal",
+  "Nettlecyst",
+  "The One Ring",
+  "Chimil, the Inner Sun",
+  "Grim Monolith",
+  "Karn, the Great Creator"
+  ]
+}

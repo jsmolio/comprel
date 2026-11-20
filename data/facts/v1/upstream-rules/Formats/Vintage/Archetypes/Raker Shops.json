@@ -1,0 +1,26 @@
+{
+    "Name": "Raker Shops",
+    "IncludeColorInName": false,
+    "Conditions": [
+        {
+            "Type": "InMainboard",
+            "Cards": ["Mishra's Workshop"]
+        }, 
+        {
+            "Type": "InMainboard",
+            "Cards": ["Glaring Fleshraker"]
+        },   
+        {
+            "Type": "InMainboard",
+            "Cards": ["Sensei's Divining Top"]
+        },   
+                {
+            "Type": "DoesNotContain",
+            "Cards": ["Sowing Mycospawn"]
+        },
+                {
+            "Type": "DoesNotContain",
+            "Cards": ["Sphere of Resistance"]
+        }
+    ]
+}

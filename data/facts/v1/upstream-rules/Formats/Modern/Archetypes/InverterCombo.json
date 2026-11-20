@@ -1,0 +1,14 @@
+{
+  "Name": "InverterCombo",
+  "IncludeColorInName": false,
+  "Conditions": [
+    {
+      "Type": "InMainboard",
+      "Cards": ["Thassa's Oracle"]
+    },
+    {
+      "Type": "InMainboard",
+      "Cards": ["Inverter of Truth"]
+    }
+  ]
+}

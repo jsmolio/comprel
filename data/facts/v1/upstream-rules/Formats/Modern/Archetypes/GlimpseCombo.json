@@ -1,0 +1,14 @@
+{
+  "Name": "GlimpseCombo",
+  "IncludeColorInName": false,
+  "Conditions": [
+    {
+      "Type": "InMainboard",
+      "Cards": ["Glimpse of Tomorrow"]
+    },
+    {
+      "Type": "InMainboard",
+      "Cards": ["Shardless Agent"]
+    }
+  ]
+}

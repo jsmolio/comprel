@@ -1,0 +1,26 @@
+{
+  "Name": "Gyruda",
+  "IncludeColorInName": true,
+  "Conditions": [
+    {
+      "Type": "InMainboard",
+      "Cards": ["Spark Double"]
+    },
+    {
+      "Type": "InSideboard",
+      "Cards": ["Gyruda, Doom of Depths"]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": ["Trumpeting Carnosaur"]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": ["Quintorius Kand"]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": ["Fires of Invention"]
+    }
+  ]
+}

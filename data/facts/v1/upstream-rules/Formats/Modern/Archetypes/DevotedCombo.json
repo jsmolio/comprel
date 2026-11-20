@@ -1,0 +1,27 @@
+{
+  "Name": "DevotedCombo",
+  "IncludeColorInName": false,
+  "Conditions": [
+    {
+      "Type": "InMainboard",
+      "Cards": [
+        "Devoted Druid"
+      ]
+    },
+    {
+      "Type": "OneOrMoreInMainboard",
+      "Cards": [
+        "Vizier of Remedies",
+        "Ouroboroid"
+      ]
+    },
+    {
+      "Type": "OneOrMoreInMainboard",
+      "Cards": [
+        "Walking Ballista",
+        "Craterhoof Behemoth",
+        "Ouroboroid"
+      ]
+    }
+  ]
+}

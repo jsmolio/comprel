@@ -1,0 +1,64 @@
+{
+  "Name": "Scapeshift",
+  "IncludeColorInName": false,
+  "Conditions": [
+    {
+      "Type": "InMainOrSideboard",
+      "Cards": [
+        "Scapeshift"
+      ]
+    },
+    {
+      "Type": "InMainboard",
+      "Cards": [
+        "Valakut, the Molten Pinnacle"
+      ]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": [
+        "Amulet of Vigor"
+      ]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": [
+        "Leyline of the Guildpact"
+      ]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": [
+        "Indomitable Creativity"
+      ]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": [
+        "Primeval Titan"
+      ]
+    }
+  ],
+  "Variants": [
+    {
+      "Name": "BlueScapeshift",
+      "IncludeColorInName": false,
+      "Conditions": [
+        {
+          "Type": "OneOrMoreInMainboard",
+          "Cards": [
+            "Remand",
+            "Omnath, Locus of Creation",
+            "Bring to Light"
+          ]
+        },
+        {
+          "Type": "DoesNotContain",
+          "Cards": [
+            "Leyline of the Guildpact"
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,19 @@
+{
+  "Name": "Lessons",
+  "IncludeColorInName": true,
+  "Conditions": [
+    {
+      "Type": "OneOrMoreInMainboard",
+      "Cards": [
+        "Firebending Lesson",
+        "Combustion Technique",
+        "Abandon Attachments",
+        "Accumulate Wisdom"
+      ]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": ["Agatha's Soul Cauldron"]
+    }
+  ]
+}

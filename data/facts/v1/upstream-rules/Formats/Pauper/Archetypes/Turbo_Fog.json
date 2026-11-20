@@ -1,0 +1,10 @@
+{
+    "Name": "Turbo Fog",
+    "IncludeColorInName": false,
+    "Conditions": [
+        {
+            "Type" : "TwoOrMoreInMainboard",
+            "Cards": ["Moment's Peace","Tangle","Fog","Respite"]
+        }
+    ]
+}

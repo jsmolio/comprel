@@ -1,0 +1,26 @@
+{
+    "Name": "Sphere Shops",
+    "IncludeColorInName": false,
+    "Conditions": [
+        {
+            "Type": "InMainboard",
+            "Cards": ["Mishra's Workshop"]
+        }, 
+        {
+            "Type": "InMainboard",
+            "Cards": ["Sphere of Resistance"]
+        }, 
+        {
+            "Type": "TwoOrMoreInMainboard",
+            "Cards": ["Stonecoil Serpent","Arcbound Ravager","Patchwork Automaton","Nettlecyst","Phyrexian Revoker","Golos, Tireless Pilgrim"]
+        },    
+                {
+            "Type": "DoesNotContain",
+            "Cards": ["Bazaar of Baghdad"]
+        },
+                {
+            "Type": "DoesNotContain",
+            "Cards": ["Force of Will"]
+        }
+    ]
+}

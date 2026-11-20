@@ -1,0 +1,10 @@
+{
+  "Name": "Artifact Aggro",
+  "IncludeColorInName": true,
+  "Conditions": [
+    {
+      "Type": "OneOrMoreInMainboard",
+      "Cards": ["Zoetic Glyph", "Ravenous Robots"]
+    }
+  ]
+}
