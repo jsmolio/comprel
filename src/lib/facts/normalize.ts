@@ -1,3 +1,4 @@
+import { mergeBoard } from "../board";
 import { detectFormat } from "../format";
 import { isByePlayer, parseDeckResult, parseMatchResult } from "../result";
 import { selectConstructedCache } from "../sources/premier-parse";
@@ -16,7 +17,7 @@ export interface NormalizedEvent {
 }
 
 function toBoard(items: { Count: number; CardName: string }[] | null | undefined): BoardCard[] {
-  return (items ?? []).map((i) => ({ name: i.CardName, count: i.Count }));
+  return mergeBoard((items ?? []).map((i) => ({ name: i.CardName, count: i.Count })));
 }
 
 function rankFor(deck: RawDeck, standings: Map<string, RawStanding>): number | null {
