@@ -1,3 +1,4 @@
+import { mergeBoard } from "@/lib/board";
 import { typeLinesFor, type DeckFileLabel } from "@/lib/deck-export";
 import { cardCategory, CATEGORY_ORDER } from "@/lib/ui";
 import type { BoardCard } from "@/lib/types";
@@ -62,17 +63,19 @@ export function DeckList({
       <ZonedDeck sections={sections} cardMap={cardMap} categoryOf={categoryOf} categoryOrder={categoryOrder} cardHref={cardHref} />
     );
   }
+  const main = mergeBoard(mainboard);
+  const side = mergeBoard(sideboard);
   const groups = new Map<string, BoardCard[]>();
-  for (const c of mainboard) {
+  for (const c of main) {
     const cat = cardCategory(cardMap.get(c.name)?.typeLine);
     if (!groups.has(cat)) groups.set(cat, []);
     groups.get(cat)!.push(c);
   }
   for (const list of groups.values()) list.sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
 
-  const mainCount = mainboard.reduce((n, c) => n + c.count, 0);
-  const sideCount = sideboard.reduce((n, c) => n + c.count, 0);
-  const price = deckPrice(mainboard, cardMap) + deckPrice(sideboard, cardMap);
+  const mainCount = main.reduce((n, c) => n + c.count, 0);
+  const sideCount = side.reduce((n, c) => n + c.count, 0);
+  const price = deckPrice(main, cardMap) + deckPrice(side, cardMap);
   const orderedCats = CATEGORY_ORDER.filter((c) => groups.has(c));
 
   return (
@@ -85,9 +88,9 @@ export function DeckList({
         </div>
         {exportMeta && (
           <DeckExport
-            mainboard={mainboard}
-            sideboard={sideboard}
-            typeLines={typeLinesFor([...mainboard, ...sideboard], (name) => cardMap.get(name)?.typeLine)}
+            mainboard={main}
+            sideboard={side}
+            typeLines={typeLinesFor([...main, ...side], (name) => cardMap.get(name)?.typeLine)}
             label={exportMeta}
           />
         )}
@@ -109,11 +112,11 @@ export function DeckList({
             </div>
           );
         })}
-        {sideboard.length > 0 && (
+        {side.length > 0 && (
           <div className="break-inside-avoid">
             <h4 className="mb-1 text-xs font-semibold uppercase tracking-wide text-amber-500/80">Sideboard ({sideCount})</h4>
             <ul>
-              {[...sideboard]
+              {[...side]
                 .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name))
                 .map((c) => (
                   <CardLine key={c.name} card={c} info={cardMap.get(c.name)} />
@@ -139,9 +142,10 @@ function ZonedDeck({
   categoryOrder: readonly string[];
   cardHref?: (name: string) => string | null;
 }) {
-  const all = sections.flatMap((section) => section.cards);
+  const merged = sections.map((section) => ({ ...section, cards: mergeBoard(section.cards) }));
+  const all = merged.flatMap((section) => section.cards);
   const price = deckPrice(all, cardMap);
-  const summary = sections
+  const summary = merged
     .map((section) => `${section.cards.reduce((n, card) => n + card.count, 0)} ${section.label.toLowerCase()}`)
     .join(" · ");
   return (
@@ -151,7 +155,7 @@ function ZonedDeck({
         {price > 0 && <span className="text-neutral-300">≈ ${price.toFixed(0)}</span>}
       </div>
       <div className="grid grid-cols-2 gap-x-6 gap-y-4 sm:grid-cols-3">
-        {sections.map((section) => {
+        {merged.map((section) => {
           if (section.categorize) {
             const groups = new Map<string, BoardCard[]>();
             for (const card of section.cards) {

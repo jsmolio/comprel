@@ -1,3 +1,4 @@
+import { cleanCardName } from "./board";
 import type { BoardCard } from "./types";
 
 /**
@@ -12,7 +13,9 @@ import type { BoardCard } from "./types";
  * Names are rewritten only where a client would otherwise miss the card:
  * `Wear/Tear` becomes `Wear // Tear`, an omen printed as `A // B // A` becomes
  * `A // B`, and a double-faced card becomes its front face. Split, adventure,
- * room, and omen cards keep both faces.
+ * room, and omen cards keep both faces. After that rewrite, rows that landed on
+ * the same name are summed, per board. A card in the main deck and the sideboard
+ * stays on both.
  */
 
 export interface ExportDeck {
@@ -121,18 +124,25 @@ export function deckExportFilename(label: DeckFileLabel): string {
 }
 
 function cardLines(cards: readonly BoardCard[], types?: TypeLines): string[] {
-  const lines: string[] = [];
+  const lines: { name: string; count: number }[] = [];
+  const at = new Map<string, number>();
   for (const card of cards) {
     if (!card || !Number.isInteger(card.count) || card.count <= 0) continue;
     const name = exportCardName(card.name ?? "", types);
     if (!name) continue;
-    lines.push(`${card.count} ${name}`);
+    const index = at.get(name);
+    if (index == null) {
+      at.set(name, lines.length);
+      lines.push({ name, count: card.count });
+    } else {
+      lines[index].count += card.count;
+    }
   }
-  return lines;
+  return lines.map((line) => `${line.count} ${line.name}`);
 }
 
 function clean(name: string): string {
-  return name.trim().replace(/\s+/g, " ");
+  return cleanCardName(name);
 }
 
 function splitFaces(name: string): string[] {

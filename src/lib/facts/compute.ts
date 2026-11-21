@@ -1,3 +1,4 @@
+import { mergeBoard } from "../board";
 import { wilson } from "./wilson";
 import {
   ANCHOR_DECK_INDEX,
@@ -361,8 +362,8 @@ function publishedDeck(event: FactEvent, player: string, board: PlayerBoard): Pu
     result: board.result,
     rank: event.decks.find((d) => d.player === player)?.rank ?? null,
     anchorUri: board.anchorUri,
-    mainboard: board.mainboard,
-    sideboard: board.sideboard,
+    mainboard: mergeBoard(board.mainboard),
+    sideboard: mergeBoard(board.sideboard),
     tournamentName: event.name,
     tournamentDate: event.date,
     tournamentUri: event.uri,

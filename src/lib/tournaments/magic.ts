@@ -1,3 +1,4 @@
+import { mergeBoard } from "../board";
 import { boardUseful } from "../facts/boards";
 import type { KeptDeck } from "../facts/compute";
 import { inSource } from "../facts/compute";
@@ -39,8 +40,8 @@ function finishesFor(event: FactEvent, boards: Record<string, PlayerBoard> | nul
       record: recordFromResult(row.result),
       hasList,
       anchorUri: hasList ? (board?.anchorUri ?? null) : null,
-      mainboard: hasList ? (board?.mainboard ?? []) : [],
-      sideboard: hasList ? (board?.sideboard ?? []) : [],
+      mainboard: hasList ? mergeBoard(board?.mainboard ?? []) : [],
+      sideboard: hasList ? mergeBoard(board?.sideboard ?? []) : [],
     };
   });
 }
