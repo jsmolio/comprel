@@ -24,7 +24,7 @@ import { FactStore, withPublishLock } from "../src/lib/facts/store";
 import type { SnapshotCoverage, VideosState } from "../src/lib/facts/types";
 import { VIDEO_MAX_RESULTS, refreshVideoState, selectVideoTargets, videoHorizonStart } from "../src/lib/facts/videos";
 import { reportIngestDiagnostic, shortListEvents, shortListStatus, shortListTotal, type DiagnosticEvent } from "../src/lib/ingest-summary";
-import { assessMtgoImport, importMtgo, type MtgoImportResult, type MtgoKnowledge } from "../src/lib/sources/mtgo";
+import { assessMtgoImport, importMtgo, listingEmptyPersisted, type MtgoImportResult, type MtgoKnowledge } from "../src/lib/sources/mtgo";
 import { importPremierEvents, PREMIER_LOOKBACK_DAYS } from "../src/lib/sources/premier";
 import { searchYoutube } from "../src/lib/sources/youtube-search";
 import { discoverRecentCacheFiles, SOURCE_LABELS, type DiscoveredCacheFile } from "../src/lib/sources/mtgodecklistcache";
@@ -133,6 +133,17 @@ async function mapPool<T>(items: T[], worker: (item: T) => Promise<void>) {
 function folderSpan(files: DiscoveredCacheFile[]): { newest: string | null; oldest: string | null } {
   const dates = files.map((file) => file.folderDate).sort();
   return { oldest: dates[0] ?? null, newest: dates[dates.length - 1] ?? null };
+}
+
+function publishedMtgoMisses(root: string): { reason: string }[] | undefined {
+  try {
+    const parsed = JSON.parse(fs.readFileSync(path.join(root, "data", "published", "magic", "index.json"), "utf8")) as {
+      coverage?: { mtgoMisses?: { reason: string }[] };
+    };
+    return parsed.coverage?.mtgoMisses;
+  } catch {
+    return undefined;
+  }
 }
 
 function lagDays(newest: string | null, now: Date): number | null {
@@ -277,6 +288,7 @@ async function main() {
         days: Math.min(days, 4),
         log,
         known,
+        priorEmptyListings: listingEmptyPersisted(publishedMtgoMisses(root)) ? 1 : 0,
         onItem: async (item, slug, format) => {
           const inSlug = slug.match(/(\d{4})-(\d{2})-(\d{2})/);
           const date = new Date(item.Tournament.Date);

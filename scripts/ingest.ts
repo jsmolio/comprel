@@ -80,8 +80,10 @@ async function main() {
       const mtgo = await importMtgo({ days: 4, log: (m) => console.log(m) });
       console.log("  mtgo:", JSON.stringify(mtgo));
       newTournaments += mtgo.events;
-      // Only a real, actionable break (listing 404 / page-structure change) fails the run.
-      // Transient network/5xx blips self-heal next cycle, so they don't alert.
+      // Listing 404, a repeated empty-200 index (when priorEmptyListings is set),
+      // and tracked pages that all lost the decklist embed fail the run.
+      // Scheduled backfill sets priorEmptyListings from the published snapshot.
+      // A one-off empty index and a transient network blip stay partial.
       mtgoBroken = mtgo.structuralFailure;
     }
   }

@@ -167,13 +167,17 @@ export interface SnapshotCoverage {
   /**
    * Same-day MTGO scrape. "unavailable" is a structural failure and blocks publish
    * unless explicitly overridden. "partial" means the listing could not be fetched,
-   * the listing had no recent tracked events, or some events were missed or left
-   * unattempted. The snapshot still publishes and previously stored facts are kept.
+   * the listing was a one-off HTTP 200 with no decklist links, the listing had no
+   * recent tracked events, or some events were missed or left unattempted. The
+   * snapshot still publishes and previously stored facts are kept. Another empty
+   * index on the next cycle is structural when this coverage already records
+   * `listing-empty`.
    */
   mtgo: "ok" | "skipped" | "unavailable" | "partial";
   /**
    * Misses recorded when mtgo is "partial". One of them is the listing itself
-   * when the index could not be fetched or had no recent tracked events.
+   * when the index could not be fetched, returned 200 with no decklist links,
+   * or had no recent tracked events.
    */
   mtgoMissed?: number;
   /** Events never requested because the scrape budget or request cap ran out. */

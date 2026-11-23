@@ -60,10 +60,13 @@ const SCRAPE_BUDGET_MS = 6 * 60_000;
 // Two tries for a timeout or a 200 with no embedded decklist. A parsed page
 // that lists zero decks is not retried: that publication is empty.
 const EVENT_ATTEMPTS = 2;
-// A timeout, a 200 with no decklist links, or a parsed listing with no recent
-// tracked events is retried. A 404 is not.
+// A timeout or a parsed listing with no recent tracked events is retried on a
+// short backoff. A 404 is not. A 200 with no decklist links uses the longer
+// schedule below, and those retries bypass a cached empty body.
 const INDEX_ATTEMPTS = 3;
 const INDEX_BACKOFF_MS = 700;
+const INDEX_EMPTY_BACKOFF_MS = [10_000, 30_000, 60_000] as const;
+const INDEX_RETRY_HEADERS = { "Cache-Control": "no-cache", Pragma: "no-cache" };
 const EVENT_BACKOFF_MS = 1_000;
 
 // Fast failures must not walk the whole index. Hangs hit the time budget first.
@@ -191,10 +194,20 @@ function toCacheItem(d: MtgoData, format: Format, slug: string): RawCacheItem {
   return { Tournament: { Date: date, Name: d.description ?? slug, Uri: eventUrl, Formats: format }, Decks, Standings, Rounds };
 }
 
+export interface MtgoFetchInit {
+  headers?: Record<string, string>;
+  cache?: RequestCache;
+}
+
 export interface MtgoImportResult {
   indexOk: boolean;
   /** Why a non-structural listing fetch failed. Absent when the index loaded or the failure is structural. */
   indexError?: string;
+  /**
+   * One-off HTTP 200 index with no decklist links. A repeat of that miss sets
+   * structuralFailure instead and leaves this false.
+   */
+  listingEmpty: boolean;
   found: number; // tracked-format events discovered on the index
   /** Unique decklist slugs on a parsed listing. Zero when the index did not parse. */
   indexLinks: number;
@@ -207,10 +220,11 @@ export interface MtgoImportResult {
   /** Not requested. Separate from misses. */
   unattempted: MtgoUnattempted[];
   requests: number;
-  // Listing 404, a listing that still has no decklist links after retries, or
-  // every fetched page was a 200 whose decklist embed was missing. Timeouts,
-  // HTTP errors, empty decklists, an unreachable listing, and a parsed listing
-  // with no recent tracked events are partial and do not block publish.
+  // Listing 404, an empty-200 index that the previous published cycle also
+  // recorded, or every fetched page was a 200 whose decklist embed was missing.
+  // A one-off empty-200 index, timeouts, HTTP errors, empty decklists, an
+  // unreachable listing, and a parsed listing with no recent tracked events
+  // are partial and do not block publish.
   structuralFailure: boolean;
 }
 
@@ -226,13 +240,14 @@ export interface MtgoSourceAssessment {
   mtgoUnattempted: number;
   mtgoMisses?: { slug: string; url: string; reason: string }[];
   mtgoUnattemptedEvents?: MtgoUnattempted[];
-  /** Rows for the private job summary. Includes one listing-level row when the index could not be fetched or had no recent tracked events. */
+  /** Rows for the private job summary. Includes one listing-level row when the index could not be fetched, was an empty 200, or had no recent tracked events. */
   diagnosticMisses: MtgoDiagnosticMiss[];
 }
 
 /**
  * Private coverage status for one scrape.
  * An unreachable listing is partial, with reason `listing-unreachable`.
+ * A one-off 200 listing with no decklist links is partial, with reason `listing-empty`.
  * A parsed listing with no recent tracked events is partial, with reason `listing-stale`.
  * Structural failures stay unavailable. A fetched listing with recent events and no misses is ok.
  */
@@ -245,6 +260,18 @@ export function assessMtgoImport(scraped: MtgoImportResult): MtgoSourceAssessmen
   });
   if (scraped.structuralFailure) {
     return { mtgo: "unavailable", mtgoMissed: 0, mtgoUnattempted: 0, diagnosticMisses };
+  }
+  if (scraped.listingEmpty) {
+    const reason = "listing-empty";
+    const row: MtgoDiagnosticMiss = { ref: INDEX_URL, reason };
+    if (scraped.indexError) row.detail = scraped.indexError;
+    return {
+      mtgo: "partial",
+      mtgoMissed: 1,
+      mtgoUnattempted: 0,
+      mtgoMisses: [{ slug: "listing", url: INDEX_URL, reason }],
+      diagnosticMisses: [row],
+    };
   }
   if (!scraped.indexOk) {
     const reason = "listing-unreachable";
@@ -280,6 +307,11 @@ export function assessMtgoImport(scraped: MtgoImportResult): MtgoSourceAssessmen
     };
   }
   return { mtgo: "ok", mtgoMissed: 0, mtgoUnattempted: 0, diagnosticMisses };
+}
+
+/** True when a published cycle already recorded an empty-200 MTGO index. */
+export function listingEmptyPersisted(misses: { reason: string }[] | undefined): boolean {
+  return misses?.some((miss) => miss.reason === "listing-empty") ?? false;
 }
 
 export function mtgoSlugDay(slug: string): string | null {
@@ -340,9 +372,13 @@ function indexListingProblem(html: string, cutoffMs: number): "no-links" | "no-r
   return decklistSlugs(html).some((slug) => trackedSlugInWindow(slug, cutoffMs)) ? null : "no-recent";
 }
 
-async function defaultFetchPage(url: string): Promise<MtgoPageFetch> {
+async function defaultFetchPage(url: string, init?: MtgoFetchInit): Promise<MtgoPageFetch> {
   try {
-    const res = await fetch(url, { headers: UA, signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
+    const res = await fetch(url, {
+      headers: { ...UA, ...init?.headers },
+      ...(init?.cache ? { cache: init.cache } : {}),
+      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+    });
     if (!res.ok) return { kind: "http", status: res.status };
     return { kind: "ok", status: res.status, html: await res.text() };
   } catch (error) {
@@ -362,11 +398,18 @@ export async function importMtgo(
     /** When set, events are handed to the caller instead of written to Postgres. */
     onItem?: (item: RawCacheItem, slug: string, format: Format) => Promise<void> | void;
     /** Test hook. Default fetches mtgo.com. One request at a time. */
-    fetchPage?: (url: string) => Promise<MtgoPageFetch>;
+    fetchPage?: (url: string, init?: MtgoFetchInit) => Promise<MtgoPageFetch>;
     /** `lists` events are not fetched. Default treats every slug as unseen. */
     known?: (slug: string) => MtgoKnowledge;
     /** UTC day used for same-day priority. */
     today?: string;
+    /**
+     * Published cycles in a row that already ended on an empty-200 index.
+     * Zero records this cycle as a partial `listing-empty` miss. One or more
+     * treats another empty-200 index as a structural markup change. Scheduled
+     * backfill passes 1 when the published snapshot already has that miss.
+     */
+    priorEmptyListings?: number;
     now?: () => number;
     budgetMs?: number;
     maxEventRequests?: number;
@@ -383,6 +426,7 @@ export async function importMtgo(
   const maxEventRequests = opts.maxEventRequests ?? MAX_EVENT_REQUESTS;
   const result: MtgoImportResult = {
     indexOk: false,
+    listingEmpty: false,
     found: 0,
     indexLinks: 0,
     events: 0,
@@ -400,36 +444,58 @@ export async function importMtgo(
   let indexPage: MtgoPageFetch = { kind: "network", detail: "no attempt" };
   let parsedHtml: string | null = null;
   let sawLinklessOk = false;
-  for (let attempt = 0; attempt < INDEX_ATTEMPTS; attempt++) {
-    indexPage = await fetchPage(INDEX_URL);
+  let emptyTries = 0;
+  let otherTries = 0;
+  let nextIndex: { url: string; init?: MtgoFetchInit } = { url: INDEX_URL };
+  const persistentEmpty = (opts.priorEmptyListings ?? 0) > 0;
+  while (emptyTries <= INDEX_EMPTY_BACKOFF_MS.length && otherTries < INDEX_ATTEMPTS) {
+    indexPage = await fetchPage(nextIndex.url, nextIndex.init);
     if (indexPage.kind === "http" && indexPage.status === 404) {
       result.structuralFailure = true;
       log("  ! MTGO listing returned 404 — the decklists URL changed; needs a code fix");
       return result;
     }
-    let problem: "no-links" | "no-recent" | null = null;
     if (indexPage.kind === "ok") {
-      problem = indexListingProblem(indexPage.html, cutoff);
-      if (problem === "no-links") sawLinklessOk = true;
-      else {
-        parsedHtml = indexPage.html;
-        if (!problem) break;
+      const problem = indexListingProblem(indexPage.html, cutoff);
+      if (problem === "no-links") {
+        sawLinklessOk = true;
+        const delay = INDEX_EMPTY_BACKOFF_MS[emptyTries];
+        emptyTries++;
+        if (delay == null) break;
+        log(`  ! MTGO listing attempt ${emptyTries} failed (200 with no decklist links) — retrying`);
+        await pause(delay);
+        nextIndex = {
+          url: `${INDEX_URL}?comprel-retry=${emptyTries}`,
+          init: { headers: { ...INDEX_RETRY_HEADERS }, cache: "no-store" },
+        };
+        continue;
       }
-    } else if (!retryableFetch(indexPage)) break;
-    if (attempt === INDEX_ATTEMPTS - 1) break;
-    const why =
-      indexPage.kind === "ok"
-        ? problem === "no-links"
-          ? "200 with no decklist links"
-          : "0 recent events in tracked formats"
-        : describeFetch(indexPage);
-    log(`  ! MTGO listing attempt ${attempt + 1} failed (${why}) — retrying`);
-    await pause(INDEX_BACKOFF_MS * (attempt + 1));
+      parsedHtml = indexPage.html;
+      if (!problem) break;
+      otherTries++;
+      if (otherTries >= INDEX_ATTEMPTS) break;
+      log(`  ! MTGO listing attempt ${otherTries} failed (0 recent events in tracked formats) — retrying`);
+      await pause(INDEX_BACKOFF_MS * otherTries);
+      nextIndex = { url: INDEX_URL };
+      continue;
+    }
+    if (!retryableFetch(indexPage)) break;
+    otherTries++;
+    if (otherTries >= INDEX_ATTEMPTS) break;
+    log(`  ! MTGO listing attempt ${otherTries} failed (${describeFetch(indexPage)}) — retrying`);
+    await pause(INDEX_BACKOFF_MS * otherTries);
+    nextIndex = { url: INDEX_URL };
   }
   if (!parsedHtml) {
     if (sawLinklessOk) {
-      result.structuralFailure = true;
-      log("  ! MTGO listing returned 200 but no decklist links — the index markup changed");
+      if (persistentEmpty) {
+        result.structuralFailure = true;
+        log("  ! MTGO listing returned 200 but no decklist links on consecutive published cycles — the index markup changed");
+        return result;
+      }
+      result.listingEmpty = true;
+      result.indexError = "200 with no decklist links";
+      log("  ! MTGO listing returned 200 but no decklist links — transient, skipping this cycle");
       return result;
     }
     result.indexError = describeFetch(indexPage);
