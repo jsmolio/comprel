@@ -28,7 +28,14 @@ export interface RulesMarker {
   schemaVersion: 1;
   appliedSha: string;
   source: "vendored" | "synced";
+  /** Hash of the upstream format files only. */
   contentHash: string;
+  /**
+   * Hash of those format files plus local overrides. A matching upstream commit
+   * with a different combined hash means an override changed and stored lists
+   * should be relabeled. Missing on markers written before this field existed.
+   */
+  combinedHash: string;
 }
 
 export interface RulesSyncResult {
@@ -68,6 +75,7 @@ function readMarker(root: string): RulesMarker | null {
       appliedSha: parsed.appliedSha,
       source: parsed.source,
       contentHash: typeof parsed.contentHash === "string" ? parsed.contentHash : "",
+      combinedHash: typeof parsed.combinedHash === "string" ? parsed.combinedHash : "",
     };
   } catch {
     return null;
@@ -126,6 +134,40 @@ function hashFormats(formatsDir: string): string {
     hash.update(fs.readFileSync(path.join(formatsDir, rel)));
     hash.update("\0");
   }
+  return hash.digest("hex");
+}
+
+function hashTree(dir: string): string {
+  const hash = createHash("sha256");
+  const rels: string[] = [];
+  const walk = (current: string) => {
+    if (!fs.existsSync(current)) return;
+    for (const name of fs.readdirSync(current).sort()) {
+      const full = path.join(current, name);
+      if (fs.statSync(full).isDirectory()) walk(full);
+      else if (fs.statSync(full).isFile()) rels.push(path.relative(dir, full).replaceAll("\\", "/"));
+    }
+  };
+  walk(dir);
+  for (const rel of rels.sort()) {
+    hash.update(rel);
+    hash.update("\0");
+    hash.update(fs.readFileSync(path.join(dir, rel)));
+    hash.update("\0");
+  }
+  return hash.digest("hex");
+}
+
+/** Upstream format files plus `data/rule-overrides`. Local override edits change this. */
+export function combinedRulesHash(root = process.cwd()): string {
+  return combinedHashOf(path.join(activeRulesRoot(root), "Formats"), root);
+}
+
+function combinedHashOf(formatsDir: string, root: string): string {
+  const hash = createHash("sha256");
+  hash.update(hashFormats(formatsDir));
+  hash.update("\0overrides\0");
+  hash.update(hashTree(path.join(root, "data", "rule-overrides")));
   return hash.digest("hex");
 }
 
@@ -278,10 +320,12 @@ export function rulesSyncEvents(result: RulesSyncResult): { ref: string; reason:
 }
 
 /**
- * Cheap upstream check for the formats we classify. A matching commit is a no-op.
- * A new commit replaces the synced rule tree, then local overrides still apply,
- * then stored lists are reclassified. Fetch and parse failures keep the current
- * rules and do not throw.
+ * Cheap upstream check for the formats we classify. A matching commit is a no-op
+ * when the combined rules hash also matches. A matching commit whose combined
+ * hash differs (a local override changed) reclassifies stored lists and leaves
+ * the synced tree in place. A new commit replaces the synced rule tree, then
+ * local overrides still apply, then stored lists are reclassified. Fetch and
+ * parse failures keep the current rules and do not throw.
  */
 export async function syncUpstreamRules(opts: RulesSyncOptions = {}): Promise<RulesSyncResult> {
   const root = opts.root ?? process.cwd();
@@ -297,8 +341,31 @@ export async function syncUpstreamRules(opts: RulesSyncOptions = {}): Promise<Ru
     if (typeof body.sha !== "string" || !/^[0-9a-f]{40}$/.test(body.sha)) throw new Error("commit lookup returned no sha");
     sha = body.sha;
     if (marker?.appliedSha === sha) {
-      log(`  rules sync: unchanged ${sha.slice(0, 12)}`);
-      return { status: "unchanged", sha, appliedSha: sha, ...emptyCounts() };
+      const combinedHash = combinedRulesHash(root);
+      if (marker.combinedHash === combinedHash) {
+        log(`  rules sync: unchanged ${sha.slice(0, 12)}`);
+        return { status: "unchanged", sha, appliedSha: sha, ...emptyCounts() };
+      }
+      try {
+        clearFormatDataCache();
+        const version = classifierVersion(root);
+        const counted = applyCounts(reclassify(new FactStore(root), version));
+        writeMarker(root, {
+          schemaVersion: 1,
+          appliedSha: sha,
+          source: marker.source,
+          contentHash: marker.contentHash,
+          combinedHash,
+        });
+        log(
+          `  rules sync: local overrides changed under ${sha.slice(0, 12)}; ${counted.decksChanged} stored lists changed, ${counted.decksSkipped} kept without a stored list`,
+        );
+        return { status: "updated", sha, appliedSha: sha, ...counted };
+      } catch (error) {
+        const message = clip(error);
+        log(`  rules sync: kept current labels (${message})`);
+        return { status: "failed", sha, appliedSha: marker.appliedSha, error: message, ...emptyCounts() };
+      }
     }
 
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "comprel-rules-"));
@@ -316,6 +383,7 @@ export async function syncUpstreamRules(opts: RulesSyncOptions = {}): Promise<Ru
           appliedSha: sha,
           source: marker?.source ?? "vendored",
           contentHash,
+          combinedHash: combinedHashOf(formatsDir, root),
         });
         log(`  rules sync: ${sha.slice(0, 12)} matches the rules already loaded`);
         return { status: "unchanged", sha, appliedSha: sha, ...emptyCounts() };
@@ -326,7 +394,13 @@ export async function syncUpstreamRules(opts: RulesSyncOptions = {}): Promise<Ru
       const backup = installSynced(root, formatsDir);
       let marked = false;
       try {
-        writeMarker(root, { schemaVersion: 1, appliedSha: sha, source: "synced", contentHash });
+        writeMarker(root, {
+          schemaVersion: 1,
+          appliedSha: sha,
+          source: "synced",
+          contentHash,
+          combinedHash: combinedHashOf(formatsDir, root),
+        });
         marked = true;
         clearFormatDataCache();
         const version = classifierVersion(root);
