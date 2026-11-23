@@ -14,11 +14,14 @@ import {
   AGGREGATE_STOP,
   discoverAggregateEvents,
   parseAggregateBody,
+  sliceNeedsDateSplit,
   splitDateRange,
   type AggregatePage,
   type AggregateQuery,
 } from "../src/lib/riftbound/discover";
-import { isConstructedSolo, mergeListed, selectIngestEvents, type ListedEvent } from "../src/lib/riftbound/select";
+import { emptyIngestCounts, ingestCountLine, isSoftSkip, recordAlreadyStored, recordIngested, recordSkip, skipLine } from "../src/lib/riftbound/progress";
+import { isConstructedSolo, isUnplayedShell, mergeListed, selectIngestEvents, type ListedEvent } from "../src/lib/riftbound/select";
+import { fetchOne } from "../scripts/backfill-riftbound";
 import { RiftboundStore } from "../src/lib/riftbound/store";
 import { riftboundTournamentParts } from "../src/lib/tournaments/riftbound";
 import type { RiftboundFactEvent } from "../src/lib/riftbound/types";
@@ -37,6 +40,8 @@ function listed(partial: Partial<ListedEvent> & Pick<ListedEvent, "id" | "name">
     eventFormat: "CONSTRUCTED",
     startingPlayerCount: 64,
     registeredUserCount: null,
+    capacity: null,
+    roundCount: null,
     ...partial,
   };
 }
@@ -278,6 +283,24 @@ test("normalize keeps zones, drops byes, and drops Chinese matches", () => {
   assert.equal(normalized.event.matches.length, 0);
   assert.equal(normalized.event.decks.length, 1);
   assert.equal(normalized.event.listsAbsent, false);
+  const play = normalizeEvent({
+    detail: { ...detail, source: "playriftbound", rounds: [{ id: 1, roundType: "PLAY_VS_OPPONENT", status: "COMPLETE" }] },
+    standings,
+    matchBodies: [],
+    decks: { "9": deck },
+    minPlayers: 8,
+  });
+  assert.equal(play.ok, true);
+  if (play.ok) assert.equal(play.event.listsAbsent, false);
+  const bare = normalizeEvent({
+    detail: { ...detail, source: "playriftbound" },
+    standings: { standings: [{ rank: 1, playerId: 9, username: "Ada", legendName: "Irelia, Blade Dancer", hasDeck: false }] },
+    matchBodies: [],
+    decks: {},
+    minPlayers: 8,
+  });
+  assert.equal(bare.ok, true);
+  if (bare.ok) assert.equal(bare.event.listsAbsent, true);
   const thin = normalizeEvent({
     detail,
     standings,
@@ -449,7 +472,11 @@ test("aggregate discovery pages a short list and raises the floor when the long 
       return { totalResolved: 2, playersWithLegends: 175, events: [aggregateEvent(1, 105, "2026-11-14"), aggregateEvent(2, 70, "2026-11-14")] };
     }
     if (query.category === "other" && query.cn === "exclude" && query.minPlayers === 8) {
-      return { totalResolved: 400, playersWithLegends: 1000, events: [aggregateEvent(9, 200, "2026-10-01")] };
+      if (query.start === "2026-10-01" && query.end === "2026-11-15") {
+        return { totalResolved: 400, playersWithLegends: 1000, events: [aggregateEvent(9, 200, "2026-10-01")] };
+      }
+      const id = query.start === "2026-10-01" ? 10 : 11;
+      return { totalResolved: 1, playersWithLegends: 400, events: [aggregateEvent(id, 123, query.start)] };
     }
     if (query.category === "other" && query.cn === "exclude" && query.minPlayers === 32) {
       if (query.start === "2026-10-01" && query.end === "2026-11-15") {
@@ -476,6 +503,215 @@ test("aggregate discovery pages a short list and raises the floor when the long 
   );
   assert.equal(calls.some((query) => query.category === "nexus_nights" && query.minPlayers === 96), true);
   assert.equal(calls.filter((query) => query.category === "nexus_nights" && query.cn === "exclude" && query.minPlayers > 8).every((query) => query.minPlayers >= 16), true);
+  assert.equal(calls.filter((query) => query.category === "nexus_nights" && query.cn === "exclude" && query.minPlayers === 8).length, 1);
+  assert.equal(sliceNeedsDateSplit({ totalResolved: 207, playersWithLegends: 55, events: [] }, 8), true);
+  assert.equal(sliceNeedsDateSplit({ totalResolved: 5000, playersWithLegends: 40, events: [] }, 8), false);
+});
+
+test("an over-cap slice is date-split so a 42-player event stays listed", async () => {
+  const calls: AggregateQuery[] = [];
+  const fetchPage = async (query: AggregateQuery): Promise<AggregatePage> => {
+    calls.push(query);
+    if (query.category !== "other" || query.cn !== "exclude") {
+      return { totalResolved: 0, playersWithLegends: 0, events: [] };
+    }
+    if (query.minPlayers !== 8) return { totalResolved: 6, playersWithLegends: 0, events: [] };
+    if (query.start === "2026-11-16" && query.end === "2026-11-24") {
+      return { totalResolved: 207, playersWithLegends: 55, events: [aggregateEvent(1, 407, "2026-11-21")] };
+    }
+    const span = (Date.parse(`${query.end}T00:00:00.000Z`) - Date.parse(`${query.start}T00:00:00.000Z`)) / 86_400_000;
+    if (span > 2) return { totalResolved: 112, playersWithLegends: 55, events: [] };
+    return {
+      totalResolved: 2,
+      playersWithLegends: 42,
+      events: [aggregateEvent(2000000344, 42, "2026-11-21"), aggregateEvent(2000000345, 13, query.start)],
+    };
+  };
+  const found = await discoverAggregateEvents(fetchPage, {
+    start: "2026-11-16",
+    end: "2026-11-24",
+    minPlayers: 8,
+    minLegends: 8,
+  });
+  assert.equal(found.truncated, false);
+  const vault = found.events.find((event) => event.id === 2000000344);
+  assert.equal(vault?.startingPlayerCount, 42);
+  assert.equal(calls.some((query) => query.minPlayers >= 48), false);
+  assert.ok(found.pages < 40);
+});
+
+test("a date split keeps the half already listed when the other half fails", async () => {
+  const fetchPage = async (query: AggregateQuery): Promise<AggregatePage | null> => {
+    if (query.category !== "other" || query.cn !== "exclude") {
+      return { totalResolved: 0, playersWithLegends: 0, events: [] };
+    }
+    if (query.start === "2026-11-16" && query.end === "2026-11-24") {
+      return { totalResolved: 207, playersWithLegends: 55, events: [] };
+    }
+    if (query.start === "2026-11-16") {
+      return { totalResolved: 1, playersWithLegends: 42, events: [aggregateEvent(2000000344, 42, "2026-11-21")] };
+    }
+    return null;
+  };
+  const found = await discoverAggregateEvents(fetchPage, {
+    start: "2026-11-16",
+    end: "2026-11-24",
+    minPlayers: 8,
+    minLegends: 8,
+  });
+  assert.equal(found.truncated, true);
+  assert.equal(found.events.some((event) => event.id === 2000000344), true);
+});
+
+test("a one-day slice under the cap keeps the rows the feed echoed", async () => {
+  const echoed = Array.from({ length: 100 }, (_, index) => aggregateEvent(index + 1, 30, "2026-11-21"));
+  const fetchPage = async (query: AggregateQuery): Promise<AggregatePage> => {
+    if (query.category === "other" && query.cn === "exclude") {
+      return { totalResolved: 120, playersWithLegends: 400, events: echoed };
+    }
+    return { totalResolved: 0, playersWithLegends: 0, events: [] };
+  };
+  const found = await discoverAggregateEvents(fetchPage, {
+    start: "2026-11-21",
+    end: "2026-11-22",
+    minPlayers: 8,
+    minLegends: 8,
+  });
+  assert.equal(found.truncated, false);
+  assert.equal(found.pages, 12);
+  assert.equal(found.events.length, 100);
+});
+
+test("an open-play shell with no rounds and a registration far above capacity is not selected", () => {
+  const now = new Date("2026-11-11T00:00:00.000Z");
+  const shell = listed({
+    id: 1247372,
+    name: "Friday Morning Riftbound Open Play",
+    eventCategory: "open_play",
+    startingPlayerCount: 2000,
+    registeredUserCount: 2000,
+    capacity: 8,
+    roundCount: 0,
+    startDatetime: "2026-11-06T10:00:00.000Z",
+  });
+  const seated = listed({
+    id: 892089,
+    name: "Pre-Regional Challenge",
+    startingPlayerCount: 2022,
+    registeredUserCount: 1469,
+    capacity: 1,
+    roundCount: 5,
+    startDatetime: "2026-11-06T00:00:00.000Z",
+  });
+  const roundsUnknown = listed({
+    id: 3,
+    name: "Listed without rounds",
+    startingPlayerCount: 2000,
+    registeredUserCount: 2000,
+    capacity: 8,
+    roundCount: null,
+    startDatetime: "2026-11-06T00:00:00.000Z",
+  });
+  assert.equal(isUnplayedShell(shell), true);
+  assert.equal(isUnplayedShell(seated), false);
+  assert.equal(isUnplayedShell(roundsUnknown), false);
+  const selected = selectIngestEvents([shell, seated, roundsUnknown], { now, days: 90, minPlayers: 8 });
+  assert.deepEqual(selected.map((event) => event.id).sort((a, b) => a - b), [3, 892089]);
+});
+
+test("ingest counts keep new events separate from already stored and name each skip", () => {
+  const counts = emptyIngestCounts();
+  recordAlreadyStored(counts);
+  recordAlreadyStored(counts);
+  recordIngested(counts);
+  recordSkip(counts, { startDatetime: "2026-11-06T10:00:00.000Z", name: "Friday Morning Riftbound Open Play" }, "no rounds");
+  recordSkip(counts, { startDatetime: null, name: "Undated" }, "too few legends");
+  assert.equal(counts.newlyIngested, 1);
+  assert.equal(counts.alreadyStored, 2);
+  assert.equal(counts.newlyIngested + counts.alreadyStored, 3);
+  assert.equal(ingestCountLine(counts), "1 new, 2 already stored");
+  assert.equal(skipLine(counts.skips[0]), "2026-11-06 Friday Morning Riftbound Open Play: no rounds");
+  assert.equal(skipLine(counts.skips[1]), "undated Undated: too few legends");
+  assert.equal(isSoftSkip("no rounds"), true);
+  assert.equal(isSoftSkip("standings timeout"), false);
+});
+
+test("deck fetches follow hasDeck, and an unplayed shell skips standings", async () => {
+  const urls: string[] = [];
+  const paced = async (url: string) => {
+    urls.push(url);
+    if (url.endsWith("/events/5")) {
+      return {
+        ok: true as const,
+        status: 200 as const,
+        etag: null,
+        body: {
+          id: 5,
+          name: "Store Constructed",
+          source: "playriftbound",
+          gameplayFormatName: "Constructed",
+          eventFormat: "CONSTRUCTED",
+          lifecycleStatus: "EVENT_FINISHED",
+          startDatetime: "2026-11-21T00:00:00.000Z",
+          startingPlayerCount: 16,
+          rounds: [{ id: 1, roundType: "SWISS", status: "COMPLETE" }],
+        },
+      };
+    }
+    if (url.endsWith("/events/5/standings")) {
+      return {
+        ok: true as const,
+        status: 200 as const,
+        etag: null,
+        body: {
+          standings: [
+            { rank: 1, playerId: 9, username: "Ada", legendName: "Irelia, Blade Dancer", hasDeck: true },
+            { rank: 2, playerId: 8, username: "Bea", legendName: "Jinx, Rebel", hasDeck: false },
+          ],
+        },
+      };
+    }
+    if (url.includes("/matches")) return { ok: true as const, status: 200 as const, etag: null, body: { matches: [] } };
+    if (url.endsWith("/players/9/deck")) {
+      return {
+        ok: true as const,
+        status: 200 as const,
+        etag: null,
+        body: { shareSlug: "x", sections: [{ type: "legend", cards: [{ name: "Irelia", quantity: 1 }] }] },
+      };
+    }
+    if (url.endsWith("/events/1247372")) {
+      return {
+        ok: true as const,
+        status: 200 as const,
+        etag: null,
+        body: {
+          id: 1247372,
+          name: "Friday Morning Riftbound Open Play",
+          source: "uvs",
+          gameplayFormatName: "Constructed",
+          eventFormat: "OTHER",
+          lifecycleStatus: "EVENT_FINISHED",
+          startDatetime: "2026-11-06T10:00:00.000Z",
+          startingPlayerCount: 2000,
+          registeredUserCount: 2000,
+          capacity: 8,
+          rounds: [],
+        },
+      };
+    }
+    return { ok: false as const, kind: "not-found" as const, status: 404 };
+  };
+  const played = await fetchOne(5, paced, 8, () => null, 8, 1);
+  assert.equal(played.ok, true);
+  if (played.ok) assert.equal(played.event.listsAbsent, false);
+  assert.equal(urls.some((url) => url.endsWith("/players/9/deck")), true);
+  assert.equal(urls.some((url) => url.includes("/players/8/deck")), false);
+  urls.length = 0;
+  const shell = await fetchOne(1247372, paced, 8, () => null, 8, 8);
+  assert.equal(shell.ok, false);
+  if (!shell.ok) assert.equal(shell.reason, "no rounds");
+  assert.equal(urls.some((url) => url.includes("standings")), false);
 });
 
 test("a newly ingested side event is written into the tournament index", () => {

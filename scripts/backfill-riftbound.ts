@@ -16,7 +16,16 @@ import { fetchJsonPolite, type PoliteResult } from "../src/lib/riftbound/http";
 import { chooseDeckPlayers, normalizeEvent, parseStandings, playRoundIds } from "../src/lib/riftbound/normalize";
 import { decideRiftboundPublish } from "../src/lib/riftbound/publish-policy";
 import { aggregateUrl, AGGREGATE_STOP, discoverAggregateEvents, parseAggregateBody } from "../src/lib/riftbound/discover";
-import { fieldSize, mergeListed, normalizeListed, selectIngestEvents, type ListedEvent } from "../src/lib/riftbound/select";
+import {
+  emptyIngestCounts,
+  ingestCountLine,
+  isSoftSkip,
+  recordAlreadyStored,
+  recordIngested,
+  recordSkip,
+  skipLine,
+} from "../src/lib/riftbound/progress";
+import { fieldSize, isUnplayedShell, mergeListed, normalizeListed, selectIngestEvents, type ListedEvent } from "../src/lib/riftbound/select";
 import { RiftboundStore } from "../src/lib/riftbound/store";
 import { reportIngestDiagnostic, type DiagnosticEvent } from "../src/lib/ingest-summary";
 import { RIFTBOUND_VIDEO_FORMAT, type RiftboundCoverage, type RiftboundFactEvent, type RiftboundSnapshotBody } from "../src/lib/riftbound/types";
@@ -134,10 +143,11 @@ export async function publishRiftbound(argv = process.argv.slice(2)): Promise<nu
     if (discovered.truncated) log("  aggregate listing stopped early; the featured feed is still included");
 
     const skippedNoLegend = new Set<number>();
+    const skippedSoft = new Set<number>();
     let shapeFailures = 0;
     let networkFailures = 0;
-    let ingestedThisRun = 0;
     let attemptedFetches = 0;
+    const counts = emptyIngestCounts();
     const allMisses: { id: string; reason: string }[] = [];
     const failedIds = new Set<number>();
     const before = store.allEvents().length;
@@ -152,38 +162,41 @@ export async function publishRiftbound(argv = process.argv.slice(2)): Promise<nu
     );
     for (const candidate of ordered) {
       const id = `boundrift:${candidate.id}`;
-      if (store.hasEvent(id)) continue;
+      if (store.hasEvent(id)) {
+        recordAlreadyStored(counts);
+        continue;
+      }
       if (overBudget(budget)) break;
       attemptedFetches += 1;
       const result = await fetchOne(candidate.id, paced, decksPerEvent, legendColor, eraFile.minPlayers, eraFile.minPlayers);
       if (result.ok) {
         store.putEvent(result.event);
         if (Object.keys(result.boards).length) store.writeBoards(result.event.id, result.boards);
-        ingestedThisRun += 1;
+        recordIngested(counts);
         log(`  + ${result.event.date.slice(0, 10)} ${result.event.source} ${result.event.name} (${result.event.deckCount} legends, ${result.event.matches.length} matches, ${Object.keys(result.boards).length} lists)`);
         continue;
       }
       if (result.reason === "budget") break;
-      if (
-        result.reason === "not constructed" ||
-        result.reason === "field too small" ||
-        result.reason === "too few legends" ||
-        result.reason === "no standings"
-      ) {
+      if (isSoftSkip(result.reason)) {
+        skippedSoft.add(candidate.id);
         if (result.reason === "too few legends" || result.reason === "no standings") skippedNoLegend.add(candidate.id);
         attemptedFetches -= 1;
+        recordSkip(counts, candidate, result.reason);
+        log(`  - ${skipLine(counts.skips[counts.skips.length - 1])}`);
         continue;
       }
       if (result.shape) shapeFailures += 1;
       else networkFailures += 1;
       failedIds.add(candidate.id);
       allMisses.push({ id: String(candidate.id), reason: result.reason });
-      log(`  ! ${candidate.id} ${result.reason}`);
+      const when = candidate.startDatetime?.slice(0, 10) ?? "undated";
+      log(`  ! ${when} ${candidate.name}: ${result.reason}`);
     }
+    log(`  ${ingestCountLine(counts)}`);
 
     const storedIds = new Set(store.allEvents().map((event) => event.boundriftId));
     const unattemptedAll = selected
-      .filter((event) => !storedIds.has(event.id) && !failedIds.has(event.id) && !skippedNoLegend.has(event.id))
+      .filter((event) => !storedIds.has(event.id) && !failedIds.has(event.id) && !skippedSoft.has(event.id))
       .map((event) => ({ id: String(event.id), reason: "budget" }));
     const unattempted = unattemptedAll.length;
     const unattemptedEvents = unattemptedAll.slice(0, 12);
@@ -210,7 +223,7 @@ export async function publishRiftbound(argv = process.argv.slice(2)): Promise<nu
       listingAvailable: true,
       shapeFailures,
       attemptedFetches,
-      ingestedThisRun,
+      ingestedThisRun: counts.newlyIngested,
       storedEvents: before,
       networkFailures,
     });
@@ -234,7 +247,7 @@ export async function publishRiftbound(argv = process.argv.slice(2)): Promise<nu
       complete: networkFailures === 0 && shapeFailures === 0 && unattempted === 0,
       requestedDays: days,
       discovered: selected.length,
-      ingested: selected.filter((event) => storedIds.has(event.id)).length,
+      ingested: counts.newlyIngested,
       failed: networkFailures + shapeFailures,
       unattempted,
       boundrift,
@@ -338,7 +351,7 @@ function dayStamp(ms: number): string {
   return new Date(ms).toISOString().slice(0, 10);
 }
 
-async function fetchOne(
+export async function fetchOne(
   id: number,
   paced: Paced,
   decksPerEvent: number,
@@ -351,6 +364,8 @@ async function fetchOne(
     if (!detail.ok && detail.kind === "not-found") return { ok: false as const, shape: false, reason: "no standings" };
     return { ok: false as const, shape: !detail.ok && detail.kind === "bad-shape", reason: detail.ok ? "not modified" : detail.kind };
   }
+  const listed = normalizeListed(detail.body);
+  if (listed && isUnplayedShell(listed)) return { ok: false as const, shape: false, reason: "no rounds" };
   const standings = await paced(`${API}/events/${id}/standings`);
   if (!standings.ok || standings.status !== 200) {
     if (!standings.ok && standings.kind === "not-found") return { ok: false as const, shape: false, reason: "no standings" };
@@ -395,11 +410,11 @@ async function fetchOne(
   });
   if (!preview.ok) return { ok: false as const, shape: preview.shape, reason: preview.reason };
   const decks: Record<string, unknown> = {};
-  if (source !== "playriftbound") {
-    for (const player of chooseDeckPlayers(parsedStandings.rows, decksPerEvent)) {
-      const deck = await paced(`${API}/events/${id}/players/${player}/deck`);
-      if (deck.ok && deck.status === 200) decks[player] = deck.body;
-    }
+  // Standings already limit this to rows with a legend and hasDeck, including PlayRiftbound
+  // once BoundRift publishes those lists. Rows without them make no request.
+  for (const player of chooseDeckPlayers(parsedStandings.rows, decksPerEvent)) {
+    const deck = await paced(`${API}/events/${id}/players/${player}/deck`);
+    if (deck.ok && deck.status === 200) decks[player] = deck.body;
   }
   const normalized = normalizeEvent({
     detail: detail.body,

@@ -11,6 +11,28 @@ export interface ListedEvent {
   eventFormat: string | null;
   startingPlayerCount: number | null;
   registeredUserCount: number | null;
+  capacity: number | null;
+  /** Rounds on the listing. Null when that feed did not include them. */
+  roundCount: number | null;
+}
+
+/**
+ * Registered count this many times the stated capacity, with zero rounds, is an
+ * empty registration shell (open play that never seated) rather than a tournament.
+ */
+export const SHELL_REGISTRATION_FACTOR = 10;
+
+export function isUnplayedShell(event: {
+  capacity: number | null;
+  registeredUserCount: number | null;
+  startingPlayerCount: number | null;
+  roundCount: number | null;
+}): boolean {
+  if (event.roundCount !== 0) return false;
+  const capacity = event.capacity;
+  if (capacity == null || !(capacity > 0)) return false;
+  const registered = event.registeredUserCount ?? event.startingPlayerCount ?? 0;
+  return registered >= capacity * SHELL_REGISTRATION_FACTOR;
 }
 
 const TEAM =
@@ -55,6 +77,7 @@ export function selectIngestEvents(events: readonly ListedEvent[], opts: SelectO
       (event) =>
         event.lifecycleStatus === "EVENT_FINISHED" &&
         isConstructedSolo(event) &&
+        !isUnplayedShell(event) &&
         fieldSize(event) >= opts.minPlayers &&
         inWindow(event, opts.now, opts.days),
     )
@@ -82,6 +105,8 @@ export function mergeListed(groups: readonly (readonly ListedEvent[])[]): Listed
         eventFormat: prev.eventFormat ?? event.eventFormat,
         startingPlayerCount: prev.startingPlayerCount ?? event.startingPlayerCount,
         registeredUserCount: prev.registeredUserCount ?? event.registeredUserCount,
+        capacity: prev.capacity ?? event.capacity,
+        roundCount: prev.roundCount ?? event.roundCount,
       });
     }
   }
@@ -106,7 +131,15 @@ export function normalizeListed(value: unknown): ListedEvent | null {
     eventFormat: str("eventFormat"),
     startingPlayerCount: num("startingPlayerCount") ?? num("size"),
     registeredUserCount: num("registeredUserCount"),
+    capacity: num("capacity"),
+    roundCount: roundCountFrom(row),
   };
+}
+
+function roundCountFrom(row: Record<string, unknown>): number | null {
+  if (typeof row.roundCount === "number" && Number.isFinite(row.roundCount)) return row.roundCount;
+  if (Array.isArray(row.rounds)) return row.rounds.length;
+  return null;
 }
 
 export function isKnownSource(source: string): source is RiftboundSource {
