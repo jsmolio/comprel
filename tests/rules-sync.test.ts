@@ -4,7 +4,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { rulesSyncEvents, syncUpstreamRules } from "../src/lib/archetype/rules-sync";
+import { combinedRulesHash, rulesSyncEvents, syncUpstreamRules } from "../src/lib/archetype/rules-sync";
 import { classifierVersion } from "../src/lib/facts/classifier-version";
 import { FactStore } from "../src/lib/facts/store";
 import type { FactEvent, PlayerBoard } from "../src/lib/facts/types";
@@ -119,7 +119,7 @@ test("unchanged upstream rules are a no-op", async () => {
     writeTree(path.join(root, "data", "mtgoformatdata"), momoRule(["Haliya, Guided by Light"], "OneorMoreInMainboard"));
     const marker = rulesMarkerPath(root);
     fs.mkdirSync(path.dirname(marker), { recursive: true });
-    const body = `${JSON.stringify({ schemaVersion: 1, appliedSha: OLD, source: "vendored", contentHash: "same" })}\n`;
+    const body = `${JSON.stringify({ schemaVersion: 1, appliedSha: OLD, source: "vendored", contentHash: "same", combinedHash: combinedRulesHash(root) })}\n`;
     fs.writeFileSync(marker, body);
     const store = seedStore(root);
     const calls: string[] = [];
@@ -198,6 +198,83 @@ test("changed upstream rules keep the local overlay and reclassify stored lists"
     assert.match(summary, /Azorius Control 2->0/);
     assert.match(summary, /Azorius Momo 0->2/);
     assert.match(summary, /kept without a stored list/);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("an unchanged upstream commit reclassifies stored lists when local overrides change", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "comprel-rules-override-"));
+  try {
+    writeTree(path.join(root, "data", "mtgoformatdata"), momoRule(["Vendored Only"], "InMainboard"));
+    const marker = rulesMarkerPath(root);
+    fs.mkdirSync(path.dirname(marker), { recursive: true });
+    const before = `${JSON.stringify({ schemaVersion: 1, appliedSha: OLD, source: "vendored", contentHash: "same", combinedHash: "stale" })}\n`;
+    fs.writeFileSync(marker, before);
+    override(root);
+    const store = seedStore(root);
+    const calls: string[] = [];
+    const fetchImpl: typeof fetch = async (input) => {
+      const url = String(input);
+      calls.push(url);
+      if (url.includes("/commits/")) return Response.json({ sha: OLD });
+      throw new Error(`unexpected fetch ${url}`);
+    };
+    const result = await syncUpstreamRules({ root, fetch: fetchImpl });
+    assert.equal(result.status, "updated");
+    assert.equal(result.sha, OLD);
+    assert.equal(result.decksChanged, 2);
+    assert.equal(result.decksSkipped, 1);
+    assert.equal(result.eventsUpdated, 2);
+    assert.deepEqual(calls.map((url) => url.includes("/commits/")), [true]);
+    assert.equal(store.readEvent("full")?.decks[0]?.archetype, "Azorius Momo");
+    assert.equal(store.readEvent("full")?.classifierVersion, classifierVersion(root));
+    assert.equal(store.readEvent("partial")?.classifierVersion, "stale");
+    assert.equal(store.readEvent("partial")?.decks.find((deck) => deck.player === "Ada")?.archetype, "Azorius Momo");
+    assert.equal(store.readEvent("partial")?.decks.find((deck) => deck.player === "Bob")?.archetype, "Azorius Control");
+    assert.equal(fs.existsSync(path.join(root, "data", "facts", "v1", "upstream-rules")), false);
+
+    const written = JSON.parse(fs.readFileSync(marker, "utf8")) as { appliedSha: string; source: string; contentHash: string; combinedHash: string };
+    assert.equal(written.appliedSha, OLD);
+    assert.equal(written.source, "vendored");
+    assert.equal(written.contentHash, "same");
+    assert.equal(written.combinedHash, combinedRulesHash(root));
+
+    const again = await syncUpstreamRules({ root, fetch: fetchImpl });
+    assert.equal(again.status, "unchanged");
+    assert.equal(again.decksChanged, 0);
+    assert.equal(store.readEvent("full")?.decks[0]?.archetype, "Azorius Momo");
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("a local override reclassify error keeps the rules marker", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "comprel-rules-override-fail-"));
+  try {
+    writeTree(path.join(root, "data", "mtgoformatdata"), momoRule(["Vendored Only"], "InMainboard"));
+    const marker = rulesMarkerPath(root);
+    fs.mkdirSync(path.dirname(marker), { recursive: true });
+    const before = `${JSON.stringify({ schemaVersion: 1, appliedSha: OLD, source: "vendored", contentHash: "same", combinedHash: "stale" })}\n`;
+    fs.writeFileSync(marker, before);
+    override(root);
+    const store = seedStore(root);
+    const result = await syncUpstreamRules({
+      root,
+      fetch: async (input) => {
+        if (String(input).includes("/commits/")) return Response.json({ sha: OLD });
+        throw new Error(`unexpected fetch ${String(input)}`);
+      },
+      reclassify: () => {
+        throw new Error("override reclassify blew up");
+      },
+    });
+    assert.equal(result.status, "failed");
+    assert.equal(result.decksChanged, 0);
+    assert.match(result.error ?? "", /override reclassify blew up/);
+    assert.equal(fs.readFileSync(marker, "utf8"), before);
+    assert.equal(store.readEvent("full")?.decks[0]?.archetype, "Azorius Control");
+    assert.equal(fs.existsSync(path.join(root, "data", "facts", "v1", "upstream-rules")), false);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

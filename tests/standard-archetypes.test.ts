@@ -226,3 +226,151 @@ test("Standard rules name Worlds constructed decks and the Momo shells", () => {
   );
   assert.equal(sacrifice.archetype, "Jund Sacrifice");
 });
+
+const SHELL = ["Seasoned Cryomancer", "Superior Spider-Man", "Overlord of the Balemurk", "Uldaros Theorix"];
+const SHOWCASE = path.join(
+  "data",
+  "published",
+  "magic",
+  "standard",
+  "tournaments",
+  "mtgo-com-standard-showcase-challenge-2026-11-2112858912.json",
+);
+const LEAGUE = path.join(
+  "data",
+  "published",
+  "magic",
+  "standard",
+  "tournaments",
+  "mtgo-com-standard-league-2026-11-2111361.json",
+);
+
+interface StoredList {
+  player: string;
+  rank: number | null;
+  mainboard: BoardCard[];
+  sideboard: BoardCard[];
+  where: string;
+}
+
+function cardNames(board: BoardCard[]): Set<string> {
+  return new Set(board.map((card) => card.name));
+}
+
+function copies(board: BoardCard[], name: string): number {
+  return board.filter((card) => card.name === name).reduce((sum, card) => sum + card.count, 0);
+}
+
+function shellCount(board: BoardCard[]): number {
+  const names = cardNames(board);
+  return SHELL.filter((name) => names.has(name)).length;
+}
+
+function readTournament(file: string): { date: string; finishes: StoredList[] } {
+  const data = JSON.parse(fs.readFileSync(file, "utf8")) as {
+    date: string;
+    finishes: { player: string; rank: number | null; mainboard?: BoardCard[]; sideboard?: BoardCard[] }[];
+  };
+  return {
+    date: data.date,
+    finishes: (data.finishes ?? []).map((finish) => ({
+      player: finish.player,
+      rank: finish.rank,
+      mainboard: finish.mainboard ?? [],
+      sideboard: finish.sideboard ?? [],
+      where: file,
+    })),
+  };
+}
+
+function readMtgoSamples(): StoredList[] {
+  const data = JSON.parse(fs.readFileSync(path.join("data", "published", "magic", "standard", "lists", "mtgo.json"), "utf8")) as {
+    lists: Record<string, { player: string; rank: number | null; mainboard?: BoardCard[]; sideboard?: BoardCard[]; anchorUri?: string }[]>;
+  };
+  const lists: StoredList[] = [];
+  for (const [archetype, rows] of Object.entries(data.lists)) {
+    for (const row of rows) {
+      lists.push({
+        player: row.player,
+        rank: row.rank,
+        mainboard: row.mainboard ?? [],
+        sideboard: row.sideboard ?? [],
+        where: `${archetype} ${row.anchorUri ?? ""}`.trim(),
+      });
+    }
+  }
+  return lists;
+}
+
+function requireList(lists: StoredList[], player: string): StoredList {
+  const deck = lists.find((row) => row.player === player && row.mainboard.length > 0);
+  assert.ok(deck, `stored list for ${player}`);
+  return deck;
+}
+
+test("Arianne's 11/21 Standard Showcase top 8 list is Dimir Reanimator", () => {
+  const event = readTournament(SHOWCASE);
+  assert.match(event.date, /^2026-11-21/);
+  const deck = requireList(event.finishes, "Arianne");
+  assert.ok(deck.rank != null && deck.rank <= 8);
+  assert.equal(cardNames(deck.mainboard).has("Deceit"), true);
+  assert.ok(shellCount(deck.mainboard) >= 2);
+  assert.equal(copies(deck.mainboard, "Doomsday Excruciator"), 0);
+  assert.equal(classify("Standard", deck.mainboard, deck.sideboard).archetype, "Dimir Reanimator");
+});
+
+test("Sordyrrum's 11/21 Standard league list with Excruciator in the side is Dimir Reanimator", () => {
+  const event = readTournament(LEAGUE);
+  assert.match(event.date, /^2026-11-21/);
+  const deck = requireList(event.finishes, "Sordyrrum");
+  assert.equal(copies(deck.sideboard, "Doomsday Excruciator"), 2);
+  assert.equal(copies(deck.mainboard, "Doomsday Excruciator"), 0);
+  assert.equal(cardNames(deck.mainboard).has("Deceit"), true);
+  assert.ok(shellCount(deck.mainboard) >= 2);
+  assert.equal(classify("Standard", deck.mainboard, deck.sideboard).archetype, "Dimir Reanimator");
+});
+
+test("Kritik's 11/21 Standard league list is Grixis Reanimator", () => {
+  const event = readTournament(LEAGUE);
+  assert.match(event.date, /^2026-11-21/);
+  const deck = requireList(event.finishes, "Kritik");
+  assert.equal(cardNames(deck.mainboard).has("Deceit"), true);
+  assert.ok(shellCount(deck.mainboard) >= 2);
+  assert.equal(classify("Standard", deck.mainboard, deck.sideboard).archetype, "Grixis Reanimator");
+});
+
+test("a stored Dimir Deceit list with Doomsday Excruciator in the main stays Dimir Excruciator", () => {
+  const decks = readMtgoSamples().filter((row) => copies(row.mainboard, "Doomsday Excruciator") > 0 && cardNames(row.mainboard).has("Deceit"));
+  const dimir = decks.filter((row) => classify("Standard", row.mainboard, row.sideboard).colorName === "Dimir");
+  assert.ok(dimir.length > 0);
+  for (const deck of dimir) {
+    assert.equal(classify("Standard", deck.mainboard, deck.sideboard).archetype, "Dimir Excruciator", deck.where);
+  }
+});
+
+test("stored Dimir control with Consult, Countersculpt, and Three Steps Ahead stays Dimir Control", () => {
+  const wanted = ["Consult the Star Charts", "Countersculpt", "Three Steps Ahead"];
+  const dir = path.join("data", "published", "magic", "standard", "tournaments");
+  const decks: StoredList[] = [];
+  for (const name of fs.readdirSync(dir)) {
+    if (!name.startsWith("mtgo-") || !name.endsWith(".json")) continue;
+    for (const finish of readTournament(path.join(dir, name)).finishes) {
+      const names = cardNames(finish.mainboard);
+      if (wanted.every((card) => names.has(card)) && !names.has("Deceit")) decks.push(finish);
+    }
+  }
+  const dimir = decks.filter((row) => classify("Standard", row.mainboard, row.sideboard).colorName === "Dimir");
+  assert.ok(dimir.length > 0);
+  for (const deck of dimir) {
+    assert.equal(classify("Standard", deck.mainboard, deck.sideboard).archetype, "Dimir Control", `${deck.player} ${deck.where}`);
+  }
+});
+
+test("Deceit without the reanimator shell is not Reanimator", () => {
+  const deck = readMtgoSamples().find(
+    (row) => row.player === "-yursus-" && cardNames(row.mainboard).has("Deceit") && shellCount(row.mainboard) < 2,
+  );
+  assert.ok(deck, "stored -yursus- Deceit list");
+  const archetype = classify("Standard", deck.mainboard, deck.sideboard).archetype;
+  assert.equal(archetype === "Reanimator" || archetype.endsWith(" Reanimator"), false, archetype);
+});

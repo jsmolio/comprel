@@ -1,0 +1,39 @@
+{
+  "Name": "Reanimator",
+  "IncludeColorInName": true,
+  "Conditions": [
+    {
+      "Type": "InMainboard",
+      "Cards": ["Deceit"]
+    },
+    {
+      "Type": "TwoOrMoreInMainboard",
+      "Cards": [
+        "Seasoned Cryomancer",
+        "Superior Spider-Man",
+        "Overlord of the Balemurk",
+        "Uldaros Theorix"
+      ]
+    },
+    {
+      "Type": "DoesNotContainMainboard",
+      "Cards": ["Doomsday Excruciator"]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": ["Badgermole Cub"]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": ["Sultai Rhythm"]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": ["Yuna, Hope of Spira"]
+    },
+    {
+      "Type": "DoesNotContain",
+      "Cards": ["Omniscience"]
+    }
+  ]
+}
