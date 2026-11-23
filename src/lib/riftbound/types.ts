@@ -74,6 +74,7 @@ export interface RiftboundCoverage {
   complete: boolean;
   requestedDays: number;
   discovered: number;
+  /** Events written this run. Events already stored from an earlier run are not included. */
   ingested: number;
   failed: number;
   unattempted: number;

@@ -189,6 +189,8 @@ export function normalizeEvent(input: NormalizeInput): NormalizeResult {
     eventFormat: str(detail, "eventFormat"),
     startingPlayerCount: typeof detail.startingPlayerCount === "number" ? detail.startingPlayerCount : null,
     registeredUserCount: typeof detail.registeredUserCount === "number" ? detail.registeredUserCount : null,
+    capacity: typeof detail.capacity === "number" ? detail.capacity : null,
+    roundCount: Array.isArray(detail.rounds) ? detail.rounds.length : null,
   };
   if (!isConstructedSolo(listed)) return { ok: false, shape: false, reason: "not constructed" };
   const standings = parseStandings(input.standings);
@@ -243,7 +245,8 @@ export function normalizeEvent(input: NormalizeInput): NormalizeResult {
     deckCount: decks.length,
     decks,
     matches,
-    listsAbsent: source === "playriftbound" || !hasDeck,
+    // PlayRiftbound stays in the without-lists count until a standing sets hasDeck.
+    listsAbsent: !hasDeck,
   };
   return { ok: true, event, boards };
 }
