@@ -24,7 +24,7 @@ days. Sources: all / paper / MTGO.
 - Aggregate win rate, faded under 20 matches. It comes from pairings, not from a deck's stored record, and mirror matches are excluded.
 - Head-to-head matrix for the top 12, with a Wilson 95% confidence interval.
 - Archetype pages: signature cards, a 12-month share chart with ban markers, matchups, representative lists (hover images and prices), videos, and a sideboard-guide placeholder.
-- Same-day MTGO misses stay in the snapshot coverage JSON and the ingest job summary. The site does not show them. A structural MTGO failure or any missed cache file keeps the previous Magic snapshot.
+- Same-day MTGO misses stay in the snapshot coverage JSON and the ingest job summary. The site does not show them. A structural MTGO failure or any missed cache file keeps the previous Magic snapshot. One HTTP 200 decklist index with no links is recorded as `listing-empty` and the cache snapshot still publishes. The next cycle holds the snapshot when that miss is still on the published coverage.
 
 | Layer | Source |
 | --- | --- |
